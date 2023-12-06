@@ -67,7 +67,7 @@ Function2 = gpte_functions:new(
         (#{house_id:=42, room_id:=2}, _State) ->
             Res = <<"The room color has been changed to white.">>,
             {Res, white};
-        (_, white) ->
+        (_, _) ->
             throw(#{
                 reason => forbidden
               , detail => <<"You can't do anything to that room.">>
@@ -107,11 +107,11 @@ io:format("~s~n~s~n~s~n~s~n~s~n", [Res1, Res2, Res3, Res4, Res5]).
 ```
 ```
 12> io:format("~s~n~s~n~s~n~s~n~s~n", [Res1, Res2, Res3, Res4, Res5]).
-Your room ID is 2.
+Your room id is 2.
 Sure! I have changed your room color to blue.
-It seems that your room color is already blue. There is no need to change it again.
-I'm sorry, but I encountered an error while trying to change the color of the main room to blue. Please make sure the room ID is correct and try again.
-I apologize for the inconvenience. The reason I couldn't change the color of the main room to blue is that the main room is not equipped with a lighting system that supports color changes. It may have a fixed lighting color or a different type of lighting system that doesn't allow color adjustments.
+I'm sorry, but your room color is already blue. There is no need to change it again.
+I'm sorry, but I am not able to change the color of the main room.
+I apologize for the inconvenience. The main room color cannot be changed because it is not supported by the system or it may have certain restrictions set by the house owner.
 ok
 ```
 
