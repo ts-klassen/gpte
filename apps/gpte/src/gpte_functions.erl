@@ -6,6 +6,8 @@
       , name/2
       , description/1
       , description/2
+      , state/1
+      , state/2
       , upsert_properties/5
       , delete_properties/2
       , call/2
@@ -17,6 +19,8 @@
       , value/0
       , type/0
       , args/0
+      , state/0
+      , body/0
       , func/0
     ]).
 
@@ -28,13 +32,16 @@
           }
       , required := sets:set()
       , function := func()
+      , state := state()
     }.
 
 -type key()   :: atom().
 -type value() :: unicode:unicode_binary() | number().
 -type type()  :: string | integer | number | boolean.
 -type args()  :: maps:map(key(), value()).
--type func()  :: fun((args()) -> unicode:unicode_binary()).
+-type state() :: term().
+-type body()  :: unicode:unicode_binary().
+-type func()  :: fun((args(), state()) -> {body(), state()} | body()).
 
 -spec new(
         Name        :: atom()
@@ -48,6 +55,7 @@ new(Name, Desc, Func) ->
       , properties => #{}
       , required => sets:new([{version, 2}])
       , function => Func
+      , state => []
     }.
 
 -spec upsert_properties(
@@ -119,10 +127,16 @@ call(JSONArgs, Choice0) ->
 -spec call_(
         unicode:unicode_binary(), choice()
     ) -> {unicode:unicode_binary(), choice()}.
-call_(JSONArgs, #{function:=Func}=Choice0) ->
+call_(JSONArgs, #{function:=Func, state:=State0}=Choice0) ->
     Args = json_to_args(JSONArgs, Choice0),
-    Body = Func(Args),
-    {Body, Choice0}.
+    {Body, State} = case Func(Args, State0) of
+        {B, S} when is_binary(B) ->
+            {B, S};
+        B ->
+            {B, State0}
+    end,
+    Choice = Choice0#{state:=State},
+    {Body, Choice}.
 
 -spec json_to_args(unicode:unicode_binary(), choice()) -> args().
 json_to_args(JSONArgs, #{properties:=Properties}) ->
@@ -172,6 +186,14 @@ description(Choice) ->
 -spec description(unicode:unicode_binary(), choice()) -> choice().
 description(Description, Choice) ->
     klsn_map:upsert([description], Description, Choice).
+
+-spec state(choice()) -> klsn:maybe(unicode:unicode_binary()).
+state(Choice) ->
+    klsn_map:lookup([state], Choice).
+
+-spec state(unicode:unicode_binary(), choice()) -> choice().
+state(State, Choice) ->
+    klsn_map:upsert([state], State, Choice).
 
 
 
