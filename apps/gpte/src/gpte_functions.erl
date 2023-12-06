@@ -2,14 +2,16 @@
 
 -export([
         new/3
+      , new/4
+      , new/5
       , name/1
       , name/2
       , description/1
       , description/2
       , state/1
       , state/2
-      , upsert_properties/5
-      , delete_properties/2
+      , upsert_property/5
+      , delete_property/2
       , call/2
     ]).
 
@@ -58,14 +60,59 @@ new(Name, Desc, Func) ->
       , state => []
     }.
 
--spec upsert_properties(
+-spec new(
+        Name        :: atom()
+      , Description :: unicode:unicode_binary()
+      , Function    :: func()
+      , Properties  :: [{
+            Type        :: type()
+          , Name        :: key()
+          , Description :: unicode:unicode_binary()
+          , Required    :: boolean()
+        }]
+    ) -> choice().
+new(Name, Desc, Func, Properties) ->
+    Choice0 = new(Name, Desc, Func),
+    lists:foldl(fun(Property, Choice)->
+        {
+            Type
+          , Name
+          , Description
+          , Required
+        } = Property,
+        upsert_property(
+            Type
+          , Name
+          , Description
+          , Required
+          , Choice
+        )
+    end, Choice0, Properties).
+
+-spec new(
+        Name        :: atom()
+      , Description :: unicode:unicode_binary()
+      , Function    :: func()
+      , Properties  :: [{
+            Type        :: type()
+          , Name        :: key()
+          , Description :: unicode:unicode_binary()
+          , Required    :: boolean()
+        }]
+      , State       :: state()
+    ) -> choice().
+new(Name, Desc, Func, Properties, State) ->
+    Choice0 = new(Name, Desc, Func, Properties),
+    state(State, Choice0).
+
+-spec upsert_property(
         Type        :: type()
       , Name        :: key()
       , Description :: unicode:unicode_binary()
       , Required    :: boolean()
       , choice()
     ) -> choice().
-upsert_properties(Type, Name, Desc, IsReq, #{required:=ReqSet0}=Choice0) ->
+upsert_property(Type, Name, Desc, IsReq, #{required:=ReqSet0}=Choice0) ->
     Choice = klsn_map:upsert([properties, Name], #{
             type=>Type, description=>Desc
         }, Choice0),
@@ -77,8 +124,8 @@ upsert_properties(Type, Name, Desc, IsReq, #{required:=ReqSet0}=Choice0) ->
     end,
     klsn_map:upsert([required], ReqSet, Choice).
 
--spec delete_properties(Name::atom(), choice()) -> choice().
-delete_properties(_Name, Choice) ->
+-spec delete_property(key(), choice()) -> choice().
+delete_property(_Name, Choice) ->
     % FIXME
     Choice.
 
