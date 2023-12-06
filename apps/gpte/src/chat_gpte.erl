@@ -6,7 +6,7 @@
       , model/2
       , temperature/1
       , temperature/2
-      , system_message/2
+      , system/2
       , ask/2
       , function/2
     ]).
@@ -140,8 +140,8 @@ temperature(Chat) ->
 temperature(Temperature, Chat) ->
     klsn_map:upsert([request, temperature], Temperature, Chat).
 
--spec system_message(unicode:unicode_binary(), chat()) -> chat().
-system_message(Content, Chat) ->
+-spec system(unicode:unicode_binary(), chat()) -> chat().
+system(Content, Chat) ->
     Message = #{
         role => system
       , content => Content

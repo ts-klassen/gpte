@@ -73,16 +73,16 @@ new(Name, Desc, Func) ->
     ) -> choice().
 new(Name, Desc, Func, Properties) ->
     Choice0 = new(Name, Desc, Func),
-    lists:foldl(fun(Property, Choice)->
+    lists:foldl(fun(Property, Choice)-> io:format("~p~n", [Property]),
         {
             Type
-          , Name
+          , PName
           , Description
           , Required
         } = Property,
         upsert_property(
             Type
-          , Name
+          , PName
           , Description
           , Required
           , Choice
@@ -120,7 +120,7 @@ upsert_property(Type, Name, Desc, IsReq, #{required:=ReqSet0}=Choice0) ->
         true ->
             sets:add_element(Name, ReqSet0);
         false ->
-            sets:delete_element(Name, ReqSet0)
+            sets:del_element(Name, ReqSet0)
     end,
     klsn_map:upsert([required], ReqSet, Choice).
 
