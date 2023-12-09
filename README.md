@@ -23,7 +23,7 @@ Res.
 ```
 
 
-comprehensive example
+function call example
 ---------------------
 ```
 Chat0 = chat_gpte:new().
@@ -117,7 +117,7 @@ I apologize for the inconvenience. The main room color cannot be changed because
 ok
 ```
 
-[Full output](./comprehensive_example.txt)
+[Full output](./function_call_example.txt)
 
 spec
 ----
