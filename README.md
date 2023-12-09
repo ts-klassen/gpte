@@ -3,6 +3,8 @@ gpte
 
 An OTP application
 
+Openai ChatGPT for Erlang
+
 Build
 -----
 
@@ -162,4 +164,11 @@ spec
         }]
       , State       :: state()
     ) -> choice().
+```
+
+klsn
+----
+`klsn:maybe/1`
+```
+-type maybe(Value) :: {value, Value} | none.
 ```
