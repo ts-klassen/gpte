@@ -148,6 +148,16 @@ spec
     ) -> {unicode:unicode_binary(), chat()}.
 ```
 
+#### messages/1
+```
+-spec messages(chat()) -> messages().
+```
+
+#### messages/2
+```
+-spec messages(messages(), chat()) -> chat().
+```
+
 ### gpte_functions
 
 #### new/5
@@ -164,6 +174,15 @@ spec
         }]
       , State       :: state()
     ) -> choice().
+```
+
+type
+----
+### chat_gpte
+```
+-type role() :: system | assistant | user | function.
+
+-type messages() :: [{role(), unicode:unicode_binary()} | reference()].
 ```
 
 klsn
