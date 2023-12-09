@@ -6,6 +6,8 @@
       , model/2
       , temperature/1
       , temperature/2
+      , messages/1
+      , messages/2
       , system/2
       , ask/2
       , function/2
@@ -14,6 +16,7 @@
 -export_type([
         chat/0
       , role/0
+      , messages/0
     ]).
 
 -opaque chat() :: #{
@@ -48,6 +51,8 @@
 -type properties_() :: map().
 
 -type role() :: system | assistant | user | function.
+
+-type messages() :: [{role(), unicode:unicode_binary()} | reference()].
 
 
 -spec new() -> chat().
@@ -140,6 +145,58 @@ temperature(Chat) ->
 temperature(Temperature, Chat) ->
     klsn_map:upsert([request, temperature], Temperature, Chat).
 
+-spec backup_messages(message_()|[message_()], chat()) -> chat().
+backup_messages(Messages, Chat0) when is_list(Messages) ->
+    lists:foldl(fun(Message, Chat)->
+        backup_messages(Message, Chat)
+    end, Chat0, Messages);
+backup_messages(Message, Chat0) when is_map(Message) ->
+    case klsn_map:lookup([message_backup, msg_to_ref, Message], Chat0) of
+        {value, _} ->
+            Chat0;
+        none ->
+            Ref = make_ref(),
+            Chat1 = klsn_map:upsert([message_backup, msg_to_ref, Message], Ref, Chat0),
+            klsn_map:upsert([message_backup, ref_to_msg, Ref], Message, Chat1)
+    end.
+
+-spec message_to_ref(message_(), chat()) -> reference().
+message_to_ref(Message, Chat) ->
+    {value, Ref} = klsn_map:lookup([message_backup, msg_to_ref, Message], Chat),
+    Ref.
+
+-spec ref_to_message(reference(), chat()) -> klsn:maybe(message_()).
+ref_to_message(Ref, Chat) ->
+    klsn_map:lookup([message_backup, ref_to_msg, Ref], Chat).
+
+-spec messages(chat()) -> messages().
+messages(Chat) ->
+    case klsn_map:lookup([request, messages], Chat) of
+        none -> [];
+        {value, Messages} -> lists:map(fun
+            (#{content:=null}=Message) ->
+                message_to_ref(Message, Chat);
+            (#{role:=Role, content:=Content}=M) when map_size(M)=:=2 ->
+                {Role, Content};
+            (Message) ->
+                message_to_ref(Message, Chat)
+        end, Messages)
+    end.
+
+
+-spec messages(messages(), chat()) -> chat().
+messages(Messages0, Chat) ->
+    Messages =lists:filtermap(fun
+        (Ref) when is_reference(Ref) ->
+            case ref_to_message(Ref, Chat) of
+                none -> false;
+                {value, Message} -> {true, Message}
+            end;
+        ({Role, Content}) ->
+            {true, #{role=>Role, content=>Content}}
+    end, Messages0),
+    klsn_map:upsert([request, messages], Messages, Chat).
+
 -spec system(unicode:unicode_binary(), chat()) -> chat().
 system(Content, Chat) ->
     Message = #{
@@ -164,8 +221,9 @@ message_(Chat) ->
     Message.
 
 -spec message_(message_(), chat()) -> chat().
-message_(Message, Chat) ->
-    {value, Messages} = klsn_map:lookup([request, messages], Chat),
+message_(Message, Chat0) ->
+    {value, Messages} = klsn_map:lookup([request, messages], Chat0),
+    Chat = backup_messages(Message, Chat0),
     klsn_map:upsert([request, messages], [Message|Messages], Chat).
 
 -spec function(
