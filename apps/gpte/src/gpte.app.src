@@ -6,7 +6,9 @@
   {applications,
    [kernel,
     stdlib,
-    inets
+    klsn,
+    inets,
+    jsone
    ]},
   {env,[]},
   {modules, []},
