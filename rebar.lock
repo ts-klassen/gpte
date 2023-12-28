@@ -1,8 +1,0 @@
-[{<<"jsone">>,
-  {git,"https://github.com/sile/jsone.git",
-       {ref,"e25344b6c202dd7ffe520c0fb623c1ac53b637df"}},
-  0},
- {<<"klsn">>,
-  {git,"https://github.com/ts-klassen/klsn.git",
-       {ref,"d66599df41b737386ecae4af1648005017e96c70"}},
-  0}].
