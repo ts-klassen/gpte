@@ -11,6 +11,7 @@
       , system/2
       , ask/2
       , function/2
+      , total_tokens/1
     ]).
 
 -export_type([
@@ -250,4 +251,13 @@ function(Choice, #{request:=#{functions:=Functions}}=Chat0) ->
 
 function(Choice, Chat) ->
     function(Choice, klsn_map:upsert([request, functions], [], Chat)).
+
+-spec total_tokens(chat()) -> non_neg_integer().
+total_tokens(#{payloads:=Payload}) ->
+    lists:foldl(fun
+        (#{<<"usage">>:=#{<<"total_tokens">>:=TotalTokens}}, 0) ->
+            TotalTokens;
+        (_, Acc) ->
+            Acc
+    end, 0, Payload).
 
