@@ -3,10 +3,13 @@
 -export([
         request/2
       , chat/1
+      , embeddings/1
     ]).
 
 -export_type([
         payload/0
+      , chat/0
+      , embeddings/0
     ]).
 
 -type payload() :: map() | list().
@@ -16,12 +19,20 @@
       , messages := [map(), ...] % will be reversed to an array
     }.
 
+-type embeddings() :: #{
+        input := unicode:unicode_binary()
+      , model := unicode:unicode_binary()
+    }.
+
 -spec chat(chat()) -> payload().
 chat(#{messages:=Messages}=BodyMap) ->
     Url = <<"https://api.openai.com/v1/chat/completions">>,
-    Res0 = request(Url, BodyMap#{messages:=lists:reverse(Messages)}),
-    
-    Res0.
+    request(Url, BodyMap#{messages:=lists:reverse(Messages)}).
+
+-spec embeddings(embeddings()) -> payload().
+embeddings(RequestBody) ->
+    Url = <<"https://api.openai.com/v1/embeddings">>,
+    request(Url, RequestBody).
 
 -spec request(uri_string:uri_string(), payload()) -> payload().
 request(Url, BodyMap) ->

@@ -9,6 +9,7 @@
       , messages/1
       , messages/2
       , system/2
+      , ask/1
       , ask/2
       , function/2
       , total_tokens/1
@@ -66,6 +67,13 @@ new() ->
         }
       , payloads => []
     }.
+
+-spec ask(
+        unicode:unicode_binary()
+    ) -> unicode:unicode_binary().
+ask(Question) ->
+    {Res, _} = ask(Question, new()),
+    Res.
 
 -spec ask(
         unicode:unicode_binary(), chat()
