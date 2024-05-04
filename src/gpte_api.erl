@@ -4,12 +4,14 @@
         request/2
       , chat/1
       , embeddings/1
+      , image_generations/1
     ]).
 
 -export_type([
         payload/0
       , chat/0
       , embeddings/0
+      , image_generations/0
     ]).
 
 -type payload() :: map() | list().
@@ -24,6 +26,17 @@
       , model := unicode:unicode_binary()
     }.
 
+-type image_generations() :: #{
+        prompt := unicode:unicode_binary()
+      , model => unicode:unicode_binary()
+      , n => non_neg_integer()
+      , quality => hd
+      , response_format => url | b64_json
+      , size => unicode:unicode_binary()
+      , style => null | vivid | natural
+      , user => unicode:unicode_binary()
+    }.
+
 -spec chat(chat()) -> payload().
 chat(#{messages:=Messages}=BodyMap) ->
     Url = <<"https://api.openai.com/v1/chat/completions">>,
@@ -32,6 +45,11 @@ chat(#{messages:=Messages}=BodyMap) ->
 -spec embeddings(embeddings()) -> payload().
 embeddings(RequestBody) ->
     Url = <<"https://api.openai.com/v1/embeddings">>,
+    request(Url, RequestBody).
+
+-spec image_generations(image_generations()) -> payload().
+image_generations(RequestBody) ->
+    Url = <<"https://api.openai.com/v1/images/generations">>,
     request(Url, RequestBody).
 
 -spec request(uri_string:uri_string(), payload()) -> payload().
