@@ -61,7 +61,7 @@
 new() ->
     #{
         request => #{
-            model => <<"gpt-3.5-turbo">>
+            model => <<"gpt-4o-mini">>
           , temperature => 0.7
           , messages => []
         }
