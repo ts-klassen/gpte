@@ -8,6 +8,7 @@
       , dir/1
       , dir/2
       , lookup_url/1
+      , revised_prompt/1
       , lookup_file/1
       , on_create/2
     ]).
@@ -60,6 +61,12 @@ dir(Dir, Generations) ->
 lookup_url(#{response:=#{<<"data">>:=[#{<<"url">>:=Url}|_]}}) ->
     {value, Url};
 lookup_url(_) ->
+    none.
+
+-spec lookup_revised_prompt(generations()) -> klsn:maybe(unicode:unicode_binary()).
+lookup_revised_prompt(#{response:=#{<<"data">>:=[#{<<"revised_prompt">>:=Revised_prompt}|_]}}) ->
+    {value, Revised_prompt};
+lookup_revised_prompt(_) ->
     none.
 
 -spec lookup_file(generations()) -> klsn:maybe(unicode:unicode_binary()).
