@@ -8,7 +8,7 @@
       , dir/1
       , dir/2
       , lookup_url/1
-      , revised_prompt/1
+      , lookup_revised_prompt/1
       , lookup_file/1
       , on_create/2
     ]).
