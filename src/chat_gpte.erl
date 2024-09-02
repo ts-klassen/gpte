@@ -6,6 +6,10 @@
       , model/2
       , temperature/1
       , temperature/2
+      , response_format/1
+      , response_format/2
+      , schema/1
+      , schema/2
       , messages/1
       , messages/2
       , system/2
@@ -27,6 +31,7 @@
           , temperature := number()
           , messages := [message_()]
           , functions => [function_()]
+          , response_format => map()
         }
       , functions => maps:map(unicode:unicode_binary(), gpte_functions:choice())
       , payloads => [gpte_api:payload()]
@@ -153,6 +158,23 @@ temperature(Chat) ->
 -spec temperature(number(), chat()) -> chat().
 temperature(Temperature, Chat) ->
     klsn_map:upsert([request, temperature], Temperature, Chat).
+
+-spec response_format(chat()) -> klsn:maybe(map()).
+response_format(Chat) ->
+    klsn_map:lookup([request, response_format], Chat).
+
+-spec response_format(map(), chat()) -> chat().
+response_format(Format, Chat) ->
+    klsn_map:upsert([request, response_format], Format, Chat).
+
+-spec schema(chat()) -> klsn:maybe(map()).
+schema(Chat) ->
+    klsn_map:lookup([request, response_format, json_schema], Chat).
+
+-spec schema(map(), chat()) -> chat().
+schema(Schema, Chat0) ->
+    Chat = klsn_map:upsert([request, response_format, type], json_schema, Chat0),
+    klsn_map:upsert([request, response_format, json_schema], Schema, Chat).
 
 -spec backup_messages(message_()|[message_()], chat()) -> chat().
 backup_messages(Messages, Chat0) when is_list(Messages) ->

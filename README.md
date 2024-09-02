@@ -23,6 +23,55 @@ Res.
 ```
 
 
+JSON Schema example
+---------------------
+
+```
+Schema = #{
+    name => <<"user_info">>
+  , schema => #{
+        type => object
+      , properties => #{
+            username => #{ type => string }
+          , first_name => #{ type => string }
+          , last_name => #{ type => string }
+          , age => #{ type => string }
+        }
+    }
+},
+Chat0 = chat_gpte:new(),
+Chat1 = chat_gpte:schema(Schema, Chat0),
+Chat2 = chat_gpte:system(<<"Answer in JSON format.">>, Chat1),
+{Res, Chat3} = chat_gpte:ask(<<"Think of a random user_info.">>, Chat2),
+io:format("~ts~n", [Res]).
+```
+
+```
+1> Schema = #{
+1>     name => <<"user_info">>
+1>   , schema => #{
+1>         type => object
+1>       , properties => #{
+1>             username => #{ type => string }
+1>           , first_name => #{ type => string }
+1>           , last_name => #{ type => string }
+1>           , age => #{ type => string }
+1>         }
+1>     }
+1> },
+1> Chat0 = chat_gpte:new(),
+1> Chat1 = chat_gpte:schema(Schema, Chat0),
+1> Chat2 = chat_gpte:system(<<"Answer in JSON format.">>, Chat1),
+1> {Res, Chat3} = chat_gpte:ask(<<"Think of a random user_info.">>, Chat2),
+1> io:format("~ts~n", [Res]).
+=WARNING REPORT==== 2-Sep-2024::23:26:15.771879 ===
+Description: "Authenticity is not established by certificate path validation"
+     Reason: "Option {verify, verify_peer} and cacertfile/cacerts is missing"
+
+{"first_name":"John","last_name":"Doe","username":"johndoe123","age":"28"}
+ok
+```
+
 function call example
 ---------------------
 ```
