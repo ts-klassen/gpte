@@ -20,5 +20,5 @@ code(_) ->
 
 
 help(_) ->
-    io:format("WIP. Try running `gpte code` and type QUIT~n").
+    klsn_io:format("WIP. Try running `gpte code` and type QUIT~n").
 

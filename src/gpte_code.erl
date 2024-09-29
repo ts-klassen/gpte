@@ -32,7 +32,7 @@ cli(Opt) ->
 
 -spec resume_cli(chat_gpte:chat()) -> chat_gpte:chat().
 resume_cli(Chat) ->
-    case unicode:characters_to_binary(io:get_line(<<">> ">>)) of
+    case klsn_io:get_line(<<">> ">>) of
         <<"QUIT\n">> ->
             Chat;
         <<"DATA\n">> ->
@@ -43,7 +43,7 @@ resume_cli(Chat) ->
 
 -spec data(unicode:unicode_binary()) -> unicode:unicode_binary().
 data(Data) ->
-    case unicode:characters_to_binary(io:get_line(<<">> ">>)) of
+    case klsn_io:get_line(<<">> ">>) of
         <<".\n">> ->
             Data;
         <<"..", Part/binary>> ->
@@ -58,7 +58,7 @@ ask(Text10, Chat10) ->
     Text20 = unicode:characters_to_binary(Text10),
     git_commit(<<"User: ", Text20/binary>>, Opt),
     Text30 = run_user_cmd(decode_cmd(Text20), Text20, Opt),
-    io:format("user: ~ts~n", [Text30]),
+    klsn_io:format("user: ~ts~n", [Text30]),
     {Res0, Chat20} = chat_gpte:ask(Text30, Chat10),
     AiCmd = decode_cmd(Res0),
     Res = run_ai_cmd(AiCmd, Res0, Opt),
@@ -69,7 +69,7 @@ ask(Text10, Chat10) ->
         _ ->
             ok
     end,
-    io:format("ai: ~ts~n", [Res]),
+    klsn_io:format("ai: ~ts~n", [Res]),
     Chat20.
 
 
@@ -85,7 +85,7 @@ run_user_cmd([#{cmd:=file, file:=File}|CMDs], Text0, Opt) ->
     end,
     case filelib:safe_relative_path(File, Cwd) of
         unsafe ->
-            io:format("gpte: Filename ~ts unsafe. Skip.~n", [File]),
+            klsn_io:format("gpte: Filename ~ts unsafe. Skip.~n", [File]),
             run_user_cmd(CMDs, Text0, Opt);
         FileRelative ->
             Path = case Opt of
@@ -96,13 +96,13 @@ run_user_cmd([#{cmd:=file, file:=File}|CMDs], Text0, Opt) ->
             end,
             case file:read_file(Path) of
                 {ok, Data} ->
-                    io:format("gpte: File read from ~ts~n", [Path]),
+                    klsn_io:format("gpte: File read from ~ts~n", [Path]),
                     Annotation = <<"@file=", File/binary>>,
                     Code = <<Annotation/binary, "\n```\n", Data/binary, "\n```\n">>,
                     Text = binary:replace(Text0, Annotation, Code, [global]),
                     run_user_cmd(CMDs, Text, Opt);
                 Error ->
-                    io:format("gpte: Failed to read ~ts, ~p~n", [Path, Error]),
+                    klsn_io:format("gpte: Failed to read ~ts, ~p~n", [Path, Error]),
                     run_user_cmd(CMDs, Text0, Opt)
             end
     end;
@@ -121,7 +121,7 @@ run_ai_cmd([#{cmd:=file, file:=File, data:=Data}|CMDs], Text0, Opt) ->
     end,
     case filelib:safe_relative_path(File, Cwd) of
         unsafe ->
-            io:format("gpte: Filename ~ts unsafe. Skip.~n", [File]),
+            klsn_io:format("gpte: Filename ~ts unsafe. Skip.~n", [File]),
             run_ai_cmd(CMDs, Text0, Opt);
         FileRelative ->
             Path = case Opt of
@@ -132,12 +132,12 @@ run_ai_cmd([#{cmd:=file, file:=File, data:=Data}|CMDs], Text0, Opt) ->
             end,
             case file:write_file(Path, Data) of
                 ok ->
-                    io:format("gpte: File written to ~ts~n", [Path]),
+                    klsn_io:format("gpte: File written to ~ts~n", [Path]),
                     git_add(Path, Opt),
                     Text = binary:replace(Text0, Data, <<"@omitted\n">>, [global]),
                     run_ai_cmd(CMDs, Text, Opt);
                 Error ->
-                    io:format("gpte: Failed to write ~ts, ~p~n", [Path, Error]),
+                    klsn_io:format("gpte: Failed to write ~ts, ~p~n", [Path, Error]),
                     run_ai_cmd(CMDs, Text0, Opt)
             end
     end;
@@ -151,7 +151,7 @@ run_ai_cmd([#{cmd:=commit, msg:=MSG}|CMDs], Text, Opt) ->
 git_add(Path0, #{dir:=Dir0}) ->
     Dir = esc(Dir0),
     Path = esc(Path0),
-    io:format("git: ~ts~n", [os:cmd(unicode:characters_to_list(<<
+    klsn_io:format("git: ~ts~n", [os:cmd(unicode:characters_to_list(<<
         "git -C '"
       , Dir/binary
       , "' add '"
@@ -176,7 +176,7 @@ git_commit(MSG0, #{dir:=Dir0, commit_all_messages:=true}=Opt) ->
         _ ->
             <<>>
     end,
-    io:format("git: ~ts~n", [os:cmd(unicode:characters_to_list(<<
+    klsn_io:format("git: ~ts~n", [os:cmd(unicode:characters_to_list(<<
         "git -C '"
       , Dir/binary
       , "' commit -m '"
@@ -263,15 +263,15 @@ Try annotating under the following conditions:
 ">>, Chat0),
     {_, Chat20} = case decode_cmd(Res) of
         [#{cmd:=file,file:=<<"hello_world.js">>, data:=<<"console.log('hello world!');\n">>}, #{cmd:=commit, msg:=<<"JavaScript Hello world">>}] ->
-            io:format("gpte: educate_annotation succeed~n"),
+            klsn_io:format("gpte: educate_annotation succeed~n"),
             chat_gpte:ask(<<"Great! Make sure to include the `@commit` annotation and use the `@file` annotation when you print the entire code.">>, Chat10);
         CMD ->
-            io:format("debug-ai: ~ts~n", [Res]),
-            io:format("debug-cmd: ~p~n", [CMD]),
-            io:format("gpte: educate_annotation failed~n"),
+            klsn_io:format("debug-ai: ~ts~n", [Res]),
+            klsn_io:format("debug-cmd: ~p~n", [CMD]),
+            klsn_io:format("gpte: educate_annotation failed~n"),
             chat_gpte:ask(<<"Not quite right. Make sure to include the `@commit` annotation and use the `@file` annotation when you print the entire code.">>, Chat10)
     end,
-    io:format("gpte: Ready.~n"),
+    klsn_io:format("gpte: Ready.~n"),
     Chat20;
 educate_annotation(Chat0, false) ->
     Messages = [{assistant,<<"Understood! I'll make sure to include the `@commit` annotation and use the `@file` annotation when providing entire code files in future responses.">>},
