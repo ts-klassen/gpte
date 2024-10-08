@@ -26,8 +26,12 @@ cli(Opt) ->
     Chat0 = chat_gpte:new(),
     Chat10 = chat_gpte:model(<<"o1-mini">>, Chat0),
     Chat20 = chat_gpte:temperature(1, Chat10),
-    Chat30 = educate_annotation(Chat20, false),
-    resume_cli(Chat30#{ ?MODULE => Opt }).
+    Chat30 = chat_gpte:on_moderation_flagged(fun(Reason, C)->
+        klsn_io:format("prompt_potentially_harmful:~n~p~n", [Reason]),
+        {<<"REJECTED: Your prompt is potentially harmful.">>, C}
+    end, Chat20),
+    Chat40 = educate_annotation(Chat30, false),
+    resume_cli(Chat40#{ ?MODULE => Opt }).
 
 
 -spec resume_cli(chat_gpte:chat()) -> chat_gpte:chat().

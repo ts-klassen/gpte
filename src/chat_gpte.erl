@@ -17,12 +17,15 @@
       , ask/2
       , function/2
       , total_tokens/1
+      , on_moderation_flagged/2
     ]).
 
 -export_type([
         chat/0
       , role/0
       , messages/0
+      , on_moderation/0
+      , moderation_result/0
     ]).
 
 -opaque chat() :: #{
@@ -35,6 +38,8 @@
         }
       , functions => maps:map(unicode:unicode_binary(), gpte_functions:choice())
       , payloads => [gpte_api:payload()]
+      , on_moderation_flagged := on_moderation()
+      , moderation_cache := #{unicode:unicode_binary()=>moderation_result()}
     }.
 
 -type message_() :: #{
@@ -61,6 +66,12 @@
 
 -type messages() :: [{role(), unicode:unicode_binary()} | reference()].
 
+-type on_moderation() :: fun((moderation_result(), chat())->any()).
+
+-type moderation_result() :: #{
+        input := unicode:unicode_binary()
+      , payload := gpte_api:payload()
+    }.
 
 -spec new() -> chat().
 new() ->
@@ -71,6 +82,10 @@ new() ->
           , messages => []
         }
       , payloads => []
+      , on_moderation_flagged => fun(_, _) ->
+            erlang:error(prompt_potentially_harmful)
+        end
+      , moderation_cache => #{}
     }.
 
 -spec ask(
@@ -88,7 +103,9 @@ ask(Question, Chat0) ->
         role => user
       , content => Question
     },
-    send_message_(Message, Chat0).
+    run_moderation(Question, fun(_, Chat10) ->
+        send_message_(Message, Chat10)
+    end, Chat0).
     
 -spec send_message_(message_(), chat()
     ) -> {unicode:unicode_binary(), chat()}.
@@ -176,6 +193,10 @@ schema(Schema, Chat0) ->
     Chat = klsn_map:upsert([request, response_format, type], json_schema, Chat0),
     klsn_map:upsert([request, response_format, json_schema], Schema, Chat).
 
+-spec on_moderation_flagged(on_moderation(), chat()) -> chat().
+on_moderation_flagged(Func, Chat) ->
+    klsn_map:upsert([on_moderation_flagged], Func, Chat).
+
 -spec backup_messages(message_()|[message_()], chat()) -> chat().
 backup_messages(Messages, Chat0) when is_list(Messages) ->
     lists:foldl(fun(Message, Chat)->
@@ -234,7 +255,9 @@ system(Content, Chat) ->
         role => system
       , content => Content
     },
-    message_(Message, Chat).
+    run_moderation(Content, fun(_, Chat10) ->
+        message_(Message, Chat10)
+    end, Chat).
 
 -spec payload_(chat()) -> gpte_api:payload().
 payload_(Chat) ->
@@ -290,4 +313,31 @@ total_tokens(#{payloads:=Payload}) ->
         (_, Acc) ->
             Acc
     end, 0, Payload).
+
+-spec run_moderation(
+        unicode:unicode_binary()
+      , on_moderation()
+      , chat()
+    ) -> any().
+run_moderation(Input, Right, #{on_moderation_flagged:=Left}=Chat0) ->
+    {Res, Chat10} = case klsn_map:lookup([moderation_cache, Input], Chat0) of
+        {value, Res0} ->
+            {Res0, Chat0};
+        none ->
+            Payload = gpte_api:moderations(#{
+                model => <<"omni-moderation-latest">>
+              , input => Input
+            }),
+            Res0 = #{input => Input, payload => Payload},
+            {
+                Res0
+              , klsn_map:upsert([moderation_cache, Input], Res0, Chat0)
+            }
+    end,
+    case Res of
+        #{payload:=#{<<"results">>:=[#{<<"flagged">>:=false}]}} ->
+            Right(Res, Chat10);
+        _ ->
+            Left(Res, Chat10)
+    end.
 

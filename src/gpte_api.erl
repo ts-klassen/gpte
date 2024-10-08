@@ -5,6 +5,7 @@
       , chat/1
       , embeddings/1
       , image_generations/1
+      , moderations/1
     ]).
 
 -export_type([
@@ -12,6 +13,7 @@
       , chat/0
       , embeddings/0
       , image_generations/0
+      , moderations/0
     ]).
 
 -type payload() :: map() | list().
@@ -37,6 +39,11 @@
       , user => unicode:unicode_binary()
     }.
 
+-type moderations() :: #{
+        input := unicode:unicode_binary()
+      , model := unicode:unicode_binary()
+      }.
+
 -spec chat(chat()) -> payload().
 chat(#{messages:=Messages}=BodyMap) ->
     Url = <<"https://api.openai.com/v1/chat/completions">>,
@@ -50,6 +57,11 @@ embeddings(RequestBody) ->
 -spec image_generations(image_generations()) -> payload().
 image_generations(RequestBody) ->
     Url = <<"https://api.openai.com/v1/images/generations">>,
+    request(Url, RequestBody).
+
+-spec moderations(moderations()) -> payload().
+moderations(RequestBody) ->
+    Url = <<"https://api.openai.com/v1/moderations">>,
     request(Url, RequestBody).
 
 -spec request(uri_string:uri_string(), payload()) -> payload().
