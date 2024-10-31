@@ -116,6 +116,9 @@ run_user_cmd([_|CMDs], Text, Opt) ->
 -spec run_ai_cmd(cmd_list(), unicode:unicode_binary(), opt()) -> unicode:unicode_binary().
 run_ai_cmd([], Text, _Opt) ->
     Text;
+run_ai_cmd([#{cmd:=file, file:=File, data:=<<>>}|CMDs], Text0, Opt) ->
+    klsn_io:format("gpte: Filename ~ts empty. Skip.~n", [File]),
+    run_ai_cmd(CMDs, Text0, Opt);
 run_ai_cmd([#{cmd:=file, file:=File, data:=Data}|CMDs], Text0, Opt) ->
     {ok, Cwd} = case Opt of
         #{dir:=CwdDir} ->
