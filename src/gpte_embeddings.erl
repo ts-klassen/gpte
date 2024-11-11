@@ -9,12 +9,15 @@
       , lookup_vector/1
       , simple/1
       , simple/2
+      , on_moderation_flagged/2
     ]).
 
 -export_type([
         embeddings/0
       , vector/0
       , model/0
+      , on_moderation/0
+      , moderation_result/0
     ]).
 
 -opaque embeddings() :: #{
@@ -23,16 +26,30 @@
           , model := model()
         }
   , response => #{}  
+  , on_moderation_flagged := on_moderation()
     }.
 
 -type vector() :: nonempty_list(float()).
 
 -type model() :: unicode:unicode_binary().
 
+-type on_moderation() :: fun((moderation_result(), embeddings())->any()).
+
+-type moderation_result() :: #{
+        input := unicode:unicode_binary()
+      , payload := gpte_api:payload()
+    }.
+
 -spec new() -> embeddings().
-new() -> #{request=>#{
-        model => <<"text-embedding-3-small">>
-    }}.
+new() ->
+    #{
+        request=>#{
+            model => <<"text-embedding-3-small">>
+        }
+      , on_moderation_flagged => fun(_, _) ->
+            erlang:error(prompt_potentially_harmful)
+        end
+    }.
 
 -spec model(embeddings()) -> model().
 model(#{request:=#{model:=Model}}) ->
@@ -44,6 +61,7 @@ model(Model, Embeddings) ->
 
 -spec embed(unicode:unicode_binary(), embeddings()) -> embeddings().
 embed(Input, Embeddings=#{request:=Request}) ->
+    run_moderation(Input, Embeddings),
     Embeddings#{
         response => gpte_api:embeddings(Request#{
                 input => Input
@@ -59,7 +77,27 @@ lookup_vector(_) ->
 -spec get_vector(embeddings()) -> vector().
 get_vector(Embeddings) ->
     klsn_maybe:get_value(lookup_vector(Embeddings)).
-    
+
+-spec on_moderation_flagged(on_moderation(), embeddings()) -> embeddings().
+on_moderation_flagged(Func, Embeddings) ->
+    klsn_map:upsert([on_moderation_flagged], Func, Embeddings).
+
+-spec run_moderation(
+        unicode:unicode_binary()
+      , embeddings()
+    ) -> any().
+run_moderation(Input, #{on_moderation_flagged:=Left}=Embeddings) ->
+    Payload = gpte_api:moderations(#{
+        model => <<"omni-moderation-latest">>
+      , input => Input
+    }),
+    case Payload of
+        #{<<"results">>:=[#{<<"flagged">>:=false}]} ->
+            ok;
+        _ ->
+            Left(#{input => Input, payload => Payload}, Embeddings)
+    end.
+
 -spec simple(unicode:unicode_binary()) -> vector().
 simple(Input) ->
     Embeddings10 = new(),
