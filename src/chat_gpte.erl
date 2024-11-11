@@ -18,6 +18,8 @@
       , function/2
       , total_tokens/1
       , on_moderation_flagged/2
+      , lookup_last_usage/1
+      , get_last_usage/1
     ]).
 
 -export_type([
@@ -26,6 +28,7 @@
       , messages/0
       , on_moderation/0
       , moderation_result/0
+      , usage/0
     ]).
 
 -opaque chat() :: #{
@@ -71,6 +74,12 @@
 -type moderation_result() :: #{
         input := unicode:unicode_binary()
       , payload := gpte_api:payload()
+    }.
+
+-type usage() :: #{
+        completion_tokens := non_neg_integer()
+      , prompt_tokens := non_neg_integer()
+      , total_tokens := non_neg_integer()
     }.
 
 -spec new() -> chat().
@@ -313,6 +322,21 @@ total_tokens(#{payloads:=Payload}) ->
         (_, Acc) ->
             Acc
     end, 0, Payload).
+
+-spec lookup_last_usage(chat()) -> klsn:maybe(usage()).
+lookup_last_usage(#{payloads:=[#{<<"usage">>:=#{
+    <<"prompt_tokens">> := P
+  , <<"total_tokens">> := T
+  , <<"completion_tokens">> := C}}|_]}) ->
+    {value, #{prompt_tokens => P
+            , total_tokens => T
+            , completion_tokens => C}};
+lookup_last_usage(_) ->
+    none.
+
+-spec get_last_usage(chat()) -> usage().
+get_last_usage(Chat) ->
+    klsn_maybe:get_value(lookup_last_usage(Chat)).
 
 -spec run_moderation(
         unicode:unicode_binary()

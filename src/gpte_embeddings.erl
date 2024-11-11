@@ -10,6 +10,8 @@
       , simple/1
       , simple/2
       , on_moderation_flagged/2
+      , lookup_last_usage/1
+      , get_last_usage/1
     ]).
 
 -export_type([
@@ -18,6 +20,7 @@
       , model/0
       , on_moderation/0
       , moderation_result/0
+      , usage/0
     ]).
 
 -opaque embeddings() :: #{
@@ -38,6 +41,11 @@
 -type moderation_result() :: #{
         input := unicode:unicode_binary()
       , payload := gpte_api:payload()
+    }.
+
+-type usage() :: #{
+        prompt_tokens := non_neg_integer()
+      , total_tokens := non_neg_integer()
     }.
 
 -spec new() -> embeddings().
@@ -77,6 +85,17 @@ lookup_vector(_) ->
 -spec get_vector(embeddings()) -> vector().
 get_vector(Embeddings) ->
     klsn_maybe:get_value(lookup_vector(Embeddings)).
+
+-spec lookup_last_usage(embeddings()) -> klsn:maybe(usage()).
+lookup_last_usage(#{response:=#{<<"usage">>:=#{
+    <<"prompt_tokens">>:=P,<<"total_tokens">>:=T}}}) ->
+    {value, #{prompt_tokens => P, total_tokens => T}};
+lookup_last_usage(_) ->
+    none.
+
+-spec get_last_usage(embeddings()) -> usage().
+get_last_usage(Embeddings) ->
+    klsn_maybe:get_value(lookup_last_usage(Embeddings)).
 
 -spec on_moderation_flagged(on_moderation(), embeddings()) -> embeddings().
 on_moderation_flagged(Func, Embeddings) ->
