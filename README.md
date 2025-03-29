@@ -23,6 +23,64 @@ Res.
 ```
 
 
+How to Specify Response with Erlang Type Definition
+---------------------
+
+Here we have a type definition of `gpte_schema:sample/0`.
+
+```
+-module(gpte_schema).
+
+-export_type([sample/0]).
+
+-type sample() :: #{
+        %% string() is not allowed. Use binary string.
+        unicode_field => unicode:unicode_binary()
+      , binstr_field => klsn:binstr()
+      , klsn_binstr_field => klsn_binstr:binstr()
+      , integer_field => integer()
+      , number_field => number()
+      , boolean_field => boolean()
+      , enum_field => enum1 | enum2 % must have more than one enum
+      , map_field => #{
+            field => boolean()
+          , required_field := boolean()
+        }
+      , array_field => [number()]
+      , required_boolean_field := boolean()
+    }.
+```
+
+We can specify the response to comply with `{gpte_schema, sample, 0}` (`gpte_schema:sample/0`) like this.
+
+```
+Chat0 = chat_gpte:new(),
+Sample = {gpte_schema, sample, 0},
+Chat1 = chat_gpte:schema(gpte_schema:schema(Sample), Chat0),
+Chat2 = chat_gpte:system(<<"Answer in JSON format.">>, Chat1),
+{Res, Chat3} = chat_gpte:ask(<<"Please fill out the sample.">>, Chat2),
+gpte_schema:schema(Sample, Res).
+```
+
+```
+1> Chat0 = chat_gpte:new(),
+1> Sample = {gpte_schema, sample, 0},
+1> Chat1 = chat_gpte:schema(gpte_schema:schema(Sample), Chat0),
+1> Chat2 = chat_gpte:system(<<"Answer in JSON format.">>, Chat1),
+1> {Res, Chat3} = chat_gpte:ask(<<"Please fill out the sample.">>, Chat2),
+1> gpte_schema:schema(Sample, Res).
+#{array_field => [1,2,3,4,5],
+  binstr_field => <<"101010">>,boolean_field => true,
+  enum_field => enum1,integer_field => 42,
+  klsn_binstr_field => <<"110011">>, 
+  map_field => #{field => false,required_field => true},
+  number_field => 3.14,required_boolean_field => false,
+  unicode_field =>
+      <<227,129,147,227,130,147,227,129,171,227,129,161,227,
+        129,175>>}
+```
+
+
 JSON Schema example
 ---------------------
 
@@ -64,10 +122,6 @@ io:format("~ts~n", [Res]).
 1> Chat2 = chat_gpte:system(<<"Answer in JSON format.">>, Chat1),
 1> {Res, Chat3} = chat_gpte:ask(<<"Think of a random user_info.">>, Chat2),
 1> io:format("~ts~n", [Res]).
-=WARNING REPORT==== 2-Sep-2024::23:26:15.771879 ===
-Description: "Authenticity is not established by certificate path validation"
-     Reason: "Option {verify, verify_peer} and cacertfile/cacerts is missing"
-
 {"first_name":"John","last_name":"Doe","username":"johndoe123","age":"28"}
 ok
 ```
