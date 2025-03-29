@@ -34,7 +34,7 @@
 -opaque chat() :: #{
         request := #{
             model := unicode:unicode_binary()
-          , temperature := number()
+          , temperature => number()
           , messages := [message_()]
           , functions => [function_()]
           , response_format => map()
@@ -87,7 +87,6 @@ new() ->
     #{
         request => #{
             model => <<"gpt-4o-mini">>
-          , temperature => 0.7
           , messages => []
         }
       , payloads => []
