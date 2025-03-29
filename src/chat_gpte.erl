@@ -193,11 +193,11 @@ response_format(Chat) ->
 response_format(Format, Chat) ->
     klsn_map:upsert([request, response_format], Format, Chat).
 
--spec schema(chat()) -> klsn:maybe(map()).
+-spec schema(chat()) -> klsn:maybe(gpte_schema:schema()).
 schema(Chat) ->
     klsn_map:lookup([request, response_format, json_schema], Chat).
 
--spec schema(map(), chat()) -> chat().
+-spec schema(gpte_schema:schema(), chat()) -> chat().
 schema(Schema, Chat0) ->
     Chat = klsn_map:upsert([request, response_format, type], json_schema, Chat0),
     klsn_map:upsert([request, response_format, json_schema], Schema, Chat).
