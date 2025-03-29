@@ -8,6 +8,7 @@
       , temperature/2
       , response_format/1
       , response_format/2
+      , delete_response_format/1
       , schema/1
       , schema/2
       , messages/1
@@ -191,6 +192,11 @@ response_format(Chat) ->
 -spec response_format(map(), chat()) -> chat().
 response_format(Format, Chat) ->
     klsn_map:upsert([request, response_format], Format, Chat).
+
+-spec delete_response_format(chat()) -> chat().
+delete_response_format(Chat) ->
+    Request = maps:get(request, Chat),
+    klsn_map:upsert([request], maps:remove(response_format, Request), Chat).
 
 -spec schema(chat()) -> klsn:maybe(gpte_schema:schema()).
 schema(Chat) ->
