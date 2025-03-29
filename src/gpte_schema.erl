@@ -17,6 +17,7 @@
               | {module(), TypeName::atom(), Arity::non_neg_integer()}.
 
 -type sample() :: #{
+        %% string() is not allowed. Use binary string.
         unicode_field => unicode:unicode_binary()
       , binstr_field => klsn:binstr()
       , klsn_binstr_field => klsn_binstr:binstr()
@@ -29,9 +30,11 @@
           , required_field := boolean()
         }
       , array_field => [number()]
-      , tuple_field => {boolean(), integer(), klsn:binstr()}
       , required_boolean_field := boolean()
     }.
+
+%% openai does not support tuple...
+%% tuple_field => {boolean(), integer(), klsn:binstr()}
 
 -spec schema(type()) -> schema().
 schema(TypeSpec) ->
