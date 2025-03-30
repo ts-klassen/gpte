@@ -169,6 +169,18 @@ git_add(_, _) ->
     ok.
 
 
+-spec git_diff(opt()) -> ok.
+git_add(#{dir:=Dir0}) ->
+    Dir = esc(Dir0),
+    klsn_io:format("git: ~ts~n", [os:cmd(unicode:characters_to_list(<<
+        "git -C '"
+      , Dir/binary
+      , "' diff --staged"
+    >>))]);
+git_add(_, _) ->
+    ok.
+
+
 -spec git_commit(unicode:unicode_binary(), opt()) -> ok.
 git_commit(MSG0, #{dir:=Dir0, commit_all_messages:=true}=Opt) ->
     Dir = esc(Dir0),
