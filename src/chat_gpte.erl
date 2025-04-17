@@ -17,6 +17,7 @@
       , ask/1
       , ask/2
       , function/2
+      , tools/2
       , total_tokens/1
       , on_moderation_flagged/2
       , lookup_last_usage/1
@@ -41,6 +42,7 @@
           , response_format => map()
         }
       , functions => maps:map(unicode:unicode_binary(), gpte_functions:choice())
+      , tools => gpte_tools:tools()
       , payloads => [gpte_api:payload()]
       , on_moderation_flagged := on_moderation()
       , moderation_cache := #{unicode:unicode_binary()=>moderation_result()}
@@ -318,6 +320,10 @@ function(Choice, #{request:=#{functions:=Functions}}=Chat0) ->
 
 function(Choice, Chat) ->
     function(Choice, klsn_map:upsert([request, functions], [], Chat)).
+
+-spec tools(gpte_tools:tools(), chat()) -> chat().
+tools(Tools, Chat) ->
+    Chat#{toold => Tools}.
 
 -spec total_tokens(chat()) -> non_neg_integer().
 total_tokens(#{payloads:=Payload}) ->
