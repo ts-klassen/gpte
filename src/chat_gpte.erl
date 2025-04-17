@@ -1,5 +1,7 @@
 -module(chat_gpte).
 
+-deprecated([{function, 2}]).
+
 -export([
         new/0
       , model/1
