@@ -323,7 +323,7 @@ function(Choice, Chat) ->
 
 -spec tools(gpte_tools:tools(), chat()) -> chat().
 tools(Tools, Chat) ->
-    Chat#{toold => Tools}.
+    Chat#{tools => Tools}.
 
 -spec total_tokens(chat()) -> non_neg_integer().
 total_tokens(#{payloads:=Payload}) ->
