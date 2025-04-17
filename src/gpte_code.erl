@@ -24,7 +24,7 @@ cli() ->
 -spec cli(opt()) -> chat_gpte:chat().
 cli(Opt) ->
     Chat0 = chat_gpte:new(),
-    Chat10 = chat_gpte:model(<<"o3-mini">>, Chat0),
+    Chat10 = chat_gpte:model(<<"o3">>, Chat0),
     Chat20 = chat_gpte:temperature(1, Chat10),
     Chat30 = chat_gpte:on_moderation_flagged(fun(Reason, C)->
         klsn_io:format("prompt_potentially_harmful:~n~p~n", [Reason]),
