@@ -126,7 +126,7 @@ io:format("~ts~n", [Res]).
 ok
 ```
 
-function call example (deprecated)
+Function Call Example (Deprecated)
 ----------------------------------
 
 Use the tools function instead.
