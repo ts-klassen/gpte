@@ -126,8 +126,13 @@ io:format("~ts~n", [Res]).
 ok
 ```
 
-function call example
----------------------
+Function Call Example (Deprecated)
+----------------------------------
+
+Use the tools function instead.
+
+<details>
+<summary>Deprecated Function Call Example</summary>
 ```
 Chat0 = chat_gpte:new().
 Function1 = gpte_functions:new(
@@ -221,6 +226,8 @@ ok
 ```
 
 [Full output](./function_call_example.txt)
+
+</details>
 
 spec
 ----
