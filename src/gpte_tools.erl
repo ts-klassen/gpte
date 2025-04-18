@@ -14,6 +14,9 @@
                 description := description()
               , parameters := parameters()
               , callback := fun((Args::any())->unicode:unicode_binary())
+              % if args_type specified, callback Args will be an erlang term.
+              % if args_type is not specified, Args will be raw json binstr.
+              , args_type => gpte_schema:type()
             }
         }
     }.

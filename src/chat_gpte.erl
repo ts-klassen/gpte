@@ -49,12 +49,18 @@
       , payloads => [gpte_api:payload()]
       , on_moderation_flagged := on_moderation()
       , moderation_cache := #{unicode:unicode_binary()=>moderation_result()}
+      , message_backup => #{
+            msg_to_ref := maps:map(message_(), reference())
+          , ref_to_msg := maps:map(reference(), message_())
+        }
     }.
 
 -type message_() :: #{
         role := role()
       , content := unicode:unicode_binary()
       , function_call => unicode:unicode_binary()
+      , tool_calls => map()
+      , tool_call_id => unicode:unicode_binary()
     }.
 
 -type function_() :: #{
@@ -120,9 +126,16 @@ ask(Question, Chat0) ->
     run_moderation(Question, fun(_, Chat10) ->
         send_message_(Message, Chat10)
     end, Chat0).
-    
--spec send_message_(message_(), chat()
+
+
+
+-spec send_message_(message_() | [message_(), ...], chat()
     ) -> {unicode:unicode_binary(), chat()}.
+send_message_([Message], Chat0) ->
+    send_message_(Message, Chat0);
+send_message_([Message|Messages], Chat0) ->
+    Chat1 = message_(Message, Chat0),
+    send_message_(Messages, Chat1);
 send_message_(Message0, Chat0) ->
     Chat1 = message_(Message0, Chat0),
     Chat = request(Chat1),
@@ -130,6 +143,8 @@ send_message_(Message0, Chat0) ->
     case Message of
         #{function_call:=FC} ->
             function_call_(FC, Chat);
+        #{tool_calls:=TC} ->
+            tool_calls_(TC, Chat);
         #{content:=Content} ->
             {Content, Chat}
     end.
@@ -147,6 +162,31 @@ function_call_(#{<<"name">>:=Name, <<"arguments">>:=Args}, Chat0) ->
     },
     Chat = klsn_map:upsert([functions, Name], Choice, Chat0),
     send_message_(Message, Chat).
+
+
+-spec tool_calls_(map(), chat()) -> {unicode:unicode_binary(), chat()}.
+tool_calls_(TC, Chat0) ->
+    Messages = lists:map(fun(Call=#{<<"type">> := <<"function">>})->
+        Id = maps:get(<<"id">>, Call),
+        NameBinStr = klsn_map:get([<<"function">>, <<"name">>], Call),
+        % This atom must exist because gpte_tools:name() is an atom.
+        Name = binary_to_existing_atom(NameBinStr),
+        Arguments = klsn_map:get([<<"function">>, <<"arguments">>], Call),
+        Spec = klsn_map:get([tools, functions, Name], Chat0),
+        Args = case Spec of
+            #{args_type := ArgsType} ->
+                gpte_schema:schema(ArgsType, Arguments);
+            _ ->
+                Arguments
+        end,
+        Fun = maps:get(callback, Spec),
+        #{
+            role => tool
+          , tool_call_id => Id
+          , content => Fun(Args)
+        }
+    end, TC),
+    send_message_(Messages, Chat0).
     
     
 
@@ -155,6 +195,14 @@ request(#{request:=Request} = Chat0) ->
     Payload = gpte_api:chat(Request),
     Chat1 = payload_(Payload, Chat0),
     case Payload of
+        #{<<"choices">>:=[#{<<"message">>:=#{
+            <<"tool_calls">>:=TC
+          , <<"role">>:=<<"assistant">>
+          , <<"content">>:=Content
+        }}|_]} ->
+            message_(#{
+                role=>assistant, content=>Content, tool_calls=>TC
+            }, Chat1);
         #{<<"choices">>:=[#{<<"message">>:=#{
             <<"function_call">>:=FC
           , <<"role">>:=<<"assistant">>
@@ -336,7 +384,7 @@ tools(Tools, Chat0) ->
               , parameters => maps:get(parameters, Data)
             }
         }
-    end, maps:from_list(maps:get(functions, Tools, #{}))),
+    end, maps:to_list(maps:get(functions, Tools, #{}))),
     Chat20 = klsn_map:upsert([request, tools], Functions, Chat10),
     Chat20.
 
