@@ -37,12 +37,8 @@
       , properties => maps:map(property_name(), property())
       , required => [property_name()]
       , additionalProperties => boolean()
-      , items => property_name()
+      , items => property()
       , enum => atom()
     }.
 
-
--spec request_body(tools()) -> #{}.
-request_body(Tools) ->
-    #{}.
 
