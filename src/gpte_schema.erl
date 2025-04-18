@@ -76,6 +76,7 @@ parse({type, _, map, Properties}) ->
             ({type, _, map_field_exact, [{atom, _, KeyName}, _ValueType]})->
                 {true, KeyName}
         end, Properties)
+      , additionalProperties => false
     };
 parse({type, _, union, Args}) ->
     #{
