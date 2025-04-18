@@ -129,7 +129,7 @@ ok
 function call example (deprecated)
 ----------------------------------
 
-Use tools function instead.
+Use the tools function instead.
 
 <details>
 <summary>deprecated function call example</summary>
