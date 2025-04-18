@@ -133,6 +133,7 @@ Use the tools function instead.
 
 <details>
 <summary>Deprecated Function Call Example</summary>
+
 ```
 Chat0 = chat_gpte:new().
 Function1 = gpte_functions:new(
