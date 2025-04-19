@@ -35,7 +35,7 @@
     }.
 -gpte_type_description([
         {sample/0, [], <<"sample object with 10 fields.">>}
-        {sample/0, [unicode_field], <<"field value must be `ユニコード`."/utf8>>}
+      , {sample/0, [unicode_field], <<"field value must be `ユニコード`."/utf8>>}
       , {sample/0, [binstr_field], <<"field value must be `binstr value`.">>}
       , {sample/0, [klsn_binstr_field], <<"field value must be `klsn_binstr value`.">>}
       , {sample/0, [integer_field], <<"field value must be `512`.">>}
