@@ -1,6 +1,6 @@
 -module(gpte_functions).
 
-% module deprecated. use gpte_tools.
+%% This module is deprecated; please use `gpte_tools` instead.
 -deprecated([
         new/3
       , new/4
