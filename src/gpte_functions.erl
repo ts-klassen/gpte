@@ -1,5 +1,20 @@
 -module(gpte_functions).
 
+%% This module is deprecated; please use `gpte_tools` instead.
+-deprecated([
+        new/3
+      , new/4
+      , new/5
+      , name/1
+      , name/2
+      , description/1
+      , description/2
+      , state/1
+      , state/2
+      , upsert_property/5
+      , delete_property/2
+    ]).
+
 -export([
         new/3
       , new/4
@@ -12,6 +27,7 @@
       , state/2
       , upsert_property/5
       , delete_property/2
+      % package private function
       , call/2
     ]).
 
