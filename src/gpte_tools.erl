@@ -7,6 +7,8 @@
       , parameters/0
       , property_name/0
       , property/0
+      , callback/0
+      , function_option/0
     ]).
 
 -export([
@@ -20,7 +22,7 @@
             name() => #{
                 description := description()
               , parameters := parameters()
-              , callback := fun((Args::any())->unicode:unicode_binary())
+              , callback := callback()
               % if args_type specified, callback Args will be an erlang term.
               % if args_type is not specified, Args will be raw json binstr.
               , args_type => gpte_schema:type()
@@ -51,7 +53,25 @@
       , enum => [atom()]
     }.
 
+-type callback() :: fun((Args::any())->unicode:unicode_binary()).
+
+-type function_option() :: #{
+        json_reply => boolean() % default: false
+      , catch_exception => boolean() % default: false
+      , report_exception_detail => boolean() % default: false
+      , report_exception_detail_to_ai => boolean() % default: false
+    }.
+
+
 -gpte_function_description({sample/1, <<"Sample erlang function.">>}).
+
+-gpte_function_option({sample/1, #{
+        json_reply => false
+      , catch_exception => false
+      , report_exception_detail => false
+      , report_exception_detail_to_ai => false
+    }}).
+
 -spec sample(gpte_schema:sample()) -> unicode:unicode_binary().
 sample(Args) ->
     iolist_to_binary(io_lib:format("~p~n", [Args])).
@@ -173,7 +193,7 @@ build_function({Module, FunName, Arity=1}) ->
                     ))
             end
       , parameters => maps:get(schema, ArgsSchema)
-      , callback => erlang:make_fun(Module, FunName, Arity)
+      , callback => build_callback_fun({Module, FunName, Arity})
       , args_type => ArgsType
     };
 build_function({Module, FunName, Arity}) ->
@@ -183,17 +203,72 @@ build_function({Module, FunName, Arity}) ->
     ))}).
 
 
+-spec build_callback_fun({
+        Module :: atom()
+      , FunName :: atom()
+      , Arity :: non_neg_integer()
+    }) -> callback().
+build_callback_fun({Module, FunName, _Arity=1}=Spec) ->
+    Option = get_function_option(Spec),
+    % This has to change if Arity is not limited to 1.
+    fun(Args) ->
+        try
+            Res = Module:FunName(Args),
+            case Option of
+                #{json_response := true} ->
+                    jsone:encode(Res, [native_utf8, {indent, 2}, {space, 1}]);
+                _ ->
+                    Res
+            end
+        catch
+            Class:Error:Stack ->
+                case Option of
+                    #{catch_exception := true} ->
+                        ok;
+                    _ ->
+                        erlang:raise(Class, Error, Stack)
+                end,
+                case Option of
+                    #{report_exception_detail := true} ->
+                        error_logger:error_report([
+                            gpte_tools_callback_function_error
+                          , {callback_function, Spec}
+                          , {pid, self()}
+                          , {class, Class}
+                          , {error, Error}
+                          , {stack, Stack}
+                        ]);
+                    _ ->
+                        ok
+                end,
+                case Option of
+                    #{report_exception_detail_to_ai := true} ->
+                        IOL  = erl_error:format_exception(Class, Error, Stack),
+                        Time  = erlang:system_time(microsecond),
+                        Stamp = calendar:system_time_to_rfc3339(Time, [{unit,microsecond}]),
+                        Report = io_lib:format(
+                            "=ERROR REPORT==== ~s ===~n~ts",
+                            [Stamp, IOL]),
+                        iolist_to_binary(Report);
+                    _ ->
+                        <<"error">>
+                end
+        end
+    end.
+
+
+
 -spec lookup_function_description({
         Module :: atom()
-      , Type :: atom()
+      , FunName :: atom()
       , Arity :: non_neg_integer()
     }) -> klsn:maybe(klsn:binstr()).
-lookup_function_description({Module, Type, Arity}) ->
+lookup_function_description({Module, FunName, Arity}) ->
     Attributes = Module:module_info(attributes),
     Res = lists:filtermap(fun
         ({gpte_function_description, List})->
             Descriptions = lists:filtermap(fun
-                ({{Type0, Arity0}, Description}) when Type0 =:= Type, Arity0 =:= Arity ->
+                ({{FunName0, Arity0}, Description}) when FunName0 =:= FunName, Arity0 =:= Arity ->
                     {true, Description};
                 (_) ->
                     false
@@ -213,4 +288,38 @@ lookup_function_description({Module, Type, Arity}) ->
         _ ->
             none
     end.
+
+-spec get_function_option({
+        Module :: atom()
+      , FunName :: atom()
+      , Arity :: non_neg_integer()
+    }) -> klsn:maybe(klsn:binstr()).
+get_function_option({Module, FunName, Arity}) ->
+    Attributes = Module:module_info(attributes),
+    Res = lists:filtermap(fun
+        ({gpte_function_option, List})->
+            Descriptions = lists:filtermap(fun
+                ({{FunName0, Arity0}, Description}) when FunName0 =:= FunName, Arity0 =:= Arity ->
+                    {true, Description};
+                (_) ->
+                    false
+            end, List),
+            case Descriptions of
+                [] ->
+                    false;
+                _ ->
+                    {true, Descriptions}
+            end;
+        (_) ->
+            false
+    end, Attributes),
+    DefaultOption = #{
+        json_reply => false
+      , catch_exception => false
+      , report_exception_detail => false
+      , report_exception_detail_to_ai => false
+    },
+    lists:foldl(fun(Elem, Ack)->
+        maps:merge(Ack, Elem)
+    end, DefaultOption, lists:flatten(Res)).
 
