@@ -48,7 +48,7 @@
       , required => [property_name()]
       , additionalProperties => boolean()
       , items => property()
-      , enum => atom()
+      , enum => [atom()]
     }.
 
 -gpte_function_description({sample/1, <<"Sample erlang function.">>}).
@@ -62,7 +62,7 @@ new() ->
     #{}.
 
 -spec add_functions(
-        [{Module::atom(), FunctionName::atom(), Arity::atom()}], tools()
+        [{Module::atom(), FunctionName::atom(), Arity::non_neg_integer()}], tools()
     ) -> tools().
 add_functions([], Tools) ->
     Tools;
@@ -128,12 +128,12 @@ build_function({Module, FunName, Arity=1}) ->
         {type,_,product,[{user_type,_,ArgTypeName,ArgArity}]} ->
             {Module, ArgTypeName, length(ArgArity)};
         {type,_,product,[{remote_type,_,RemoteType}]} ->
-            [RemoteTypeMolule, RemoteTypeName, RemoteTypeArity] = RemoteType,
-            {atom, _, RemoteTypeMoluleAtom} = RemoteTypeMolule,
+            [RemoteTypeModule, RemoteTypeName, RemoteTypeArity] = RemoteType,
+            {atom, _, RemoteTypeModuleAtom} = RemoteTypeModule,
             {atom, _, RemoteTypeNameAtom} = RemoteTypeName,
             RemoteTypeArityLength = length(RemoteTypeArity),
             {
-                RemoteTypeMoluleAtom
+                RemoteTypeModuleAtom
               , RemoteTypeNameAtom
               , RemoteTypeArityLength
             };
