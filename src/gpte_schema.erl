@@ -25,7 +25,7 @@
       , integer_field => integer()
       , number_field => number()
       , boolean_field => boolean()
-      , enum_field => enum1 | enum2 % must have more than two enum
+      , enum_field => enum1 | enum2 % must have more than one enum value
       , map_field => #{
             field => boolean()
           , required_field := boolean()
