@@ -216,18 +216,14 @@ build_callback_fun({Module, FunName, _Arity=1}=Spec) ->
             Res = Module:FunName(Args),
             case Option of
                 #{json_reply := true} ->
-                    jsone:encode(Res, [native_utf8, {indent, 2}, {space, 1}]);
+                    iolist_to_binary(
+                        jsone:encode(Res, [native_utf8, {indent, 2}, {space, 1}])
+                    );
                 _ ->
                     Res
             end
         catch
             Class:Error:Stack ->
-                case Option of
-                    #{catch_exception := true} ->
-                        ok;
-                    _ ->
-                        erlang:raise(Class, Error, Stack)
-                end,
                 case Option of
                     #{report_exception_detail := true} ->
                         error_logger:error_report([
@@ -240,6 +236,12 @@ build_callback_fun({Module, FunName, _Arity=1}=Spec) ->
                         ]);
                     _ ->
                         ok
+                end,
+                case Option of
+                    #{catch_exception := true} ->
+                        ok;
+                    _ ->
+                        erlang:raise(Class, Error, Stack)
                 end,
                 case Option of
                     #{report_exception_detail_to_ai := true} ->
