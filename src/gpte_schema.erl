@@ -33,7 +33,7 @@
       , array_field => [number()]
       , required_boolean_field := boolean()
     }.
--gpte_type_description([
+-gpte_field_description([
         {sample/0, [], <<"sample object with 10 fields.">>}
       , {sample/0, [unicode_field], <<"field value must be `ユニコード`."/utf8>>}
       , {sample/0, [binstr_field], <<"field value must be `binstr value`.">>}
@@ -244,7 +244,7 @@ lookup_type_description({Module, Type, Arity}) ->
 lookup_field_description({Module, Type, Arity, Path}) ->
     Attributes = Module:module_info(attributes),
     Res = lists:filtermap(fun
-        ({gpte_type_description, List})->
+        ({gpte_field_description, List})->
             Descriptions = lists:filtermap(fun
                 ({{Type0, Arity0}, Path0, Description}) when Type0 =:= Type, Arity0 =:= Arity, Path0 =:= Path ->
                     {true, Description};
