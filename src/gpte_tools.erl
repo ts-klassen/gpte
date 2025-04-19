@@ -215,7 +215,7 @@ build_callback_fun({Module, FunName, _Arity=1}=Spec) ->
         try
             Res = Module:FunName(Args),
             case Option of
-                #{json_response := true} ->
+                #{json_reply := true} ->
                     jsone:encode(Res, [native_utf8, {indent, 2}, {space, 1}]);
                 _ ->
                     Res
@@ -293,7 +293,7 @@ lookup_function_description({Module, FunName, Arity}) ->
         Module :: atom()
       , FunName :: atom()
       , Arity :: non_neg_integer()
-    }) -> klsn:maybe(klsn:binstr()).
+    }) -> function_option().
 get_function_option({Module, FunName, Arity}) ->
     Attributes = Module:module_info(attributes),
     Res = lists:filtermap(fun
