@@ -56,13 +56,20 @@
 schema(TypeSpec) ->
     Module = element(1, TypeSpec),
     TypeName = element(2, TypeSpec),
+    Arity = case TypeSpec of
+        {_, _, Arity0} ->
+            Arity0;
+        _ ->
+            0
+    end,
     {ok, Concrete} = dialyzer_utils:get_core_from_beam(code:which(Module)),
     {ok, Types} = dialyzer_utils:get_record_and_type_info(Concrete),
     Type = element(3, element(1, maps:get({type, TypeName, 0}, Types))),
-    #{
-        name => TypeName
-      , schema => parse(Type)
-    }.
+    klsn_map:filter(#{
+        name => {value, TypeName}
+      , schema => {value, parse(Type)}
+      , description => lookup_type_description(Module, TypeName, Arity)
+    }).
 
 -spec schema(type(), JSON::klsn:binstr()) -> term().
 schema(TypeSpec, JSON) ->
@@ -75,7 +82,6 @@ schema(TypeSpec, JSON) ->
 
 
 parse({type, _, map, Properties}) ->
-
     #{
         type => object
       , properties => maps:from_list(lists:map(fun
@@ -177,4 +183,36 @@ parse({type, _, boolean, _}, Data) when is_boolean(Data) ->
     Data;
 parse(UnknownType, Data) ->
     error(unknown_type, [UnknownType, Data]).
+
+
+-spec lookup_type_description(
+        Module :: atom()
+      , Type :: atom()
+      , Arity :: non_neg_integer()
+    ) -> klsn:maybe(klsn:binstr()).
+lookup_type_description(Module, Type, Arity) ->
+    Attributes = Module:module_info(attributes),
+    Res = lists:filtermap(fun
+        ({gpte_type_description, List})->
+            Descriptions = lists:filtermap(fun
+                ({{Type0, Arity0}, Description}) when Type0 =:= Type, Arity0 =:= Arity ->
+                    {true, Description};
+                (_) ->
+                    false
+            end, List),
+            case Descriptions of
+                [] ->
+                    false;
+                _ ->
+                    {true, Descriptions}
+            end;
+        (_) ->
+            false
+    end, Attributes),
+    case Res of
+        [[Value|_]|_] ->
+            {value, Value};
+        _ ->
+            none
+    end.
 
