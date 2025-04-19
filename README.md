@@ -253,6 +253,14 @@ ok
 
 [Full output](./function_call_example.txt)
 
+
+Tools (Function‑Calling) Example
+--------------------------------
+
+The modern way to let the model execute Erlang functions is through
+OpenAI *tools*.  A complete tutorial is available in
+[function_tools.md](./function_tools.md).
+
 </details>
 
 spec
