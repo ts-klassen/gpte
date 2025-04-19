@@ -16,6 +16,7 @@
 -type type() :: {module(), TypeName::atom()}
               | {module(), TypeName::atom(), Arity::non_neg_integer()}.
 
+-gpte_type_description({sample/0, <<"This is a sample type.">>}).
 -type sample() :: #{
         %% string() is not allowed. Use binary string.
         unicode_field => unicode:unicode_binary()
@@ -32,6 +33,21 @@
       , array_field => [number()]
       , required_boolean_field := boolean()
     }.
+-gpte_type_description([
+        {sample/0, [], <<"sample object with 10 fields.">>}
+        {sample/0, [unicode_field], <<"field value must be `ユニコード`."/utf8>>}
+      , {sample/0, [binstr_field], <<"field value must be `binstr value`.">>}
+      , {sample/0, [klsn_binstr_field], <<"field value must be `klsn_binstr value`.">>}
+      , {sample/0, [integer_field], <<"field value must be `512`.">>}
+      , {sample/0, [number_field], <<"field value must be `1.024`.">>}
+      , {sample/0, [boolean_field], <<"field value must be `false`.">>}
+      , {sample/0, [enum_field], <<"field value must be `enum2`.">>}
+      , {sample/0, [map_field], <<"sample object with 2 fields.">>}
+      , {sample/0, [map_field, field], <<"field value must be `true`.">>}
+      , {sample/0, [map_field, required_field], <<"field value must be `false`.">>}
+      , {sample/0, [array_field], <<"field value must be `[1,1,2,3,5]`.">>}
+      , {sample/0, [required_boolean_field], <<"field value must be `true`.">>}
+    ]).
 
 %% openai does not support tuple...
 %% tuple_field => {boolean(), integer(), klsn:binstr()}
