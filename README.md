@@ -28,7 +28,7 @@ How to Specify Response with Erlang Type Definition
 
 Here we have a type definition of `gpte_schema:sample/0`.
 
-```
+```erlang
 -module(gpte_schema).
 
 -export_type([sample/0]).
@@ -53,11 +53,11 @@ Here we have a type definition of `gpte_schema:sample/0`.
 
 optionally, you can add description of the type and each field.
 
-```
+```erlang
 -gpte_type_description({sample/0, <<"This is a sample type.">>}).
 ```
 
-```
+```erlang
 -gpte_type_description([
         {sample/0, [], <<"sample object with 10 fields.">>}
       , {sample/0, [unicode_field], <<"field value must be `ユニコード`."/utf8>>}
