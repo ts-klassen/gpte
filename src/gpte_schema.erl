@@ -25,7 +25,7 @@
       , integer_field => integer()
       , number_field => number()
       , boolean_field => boolean()
-      , enum_field => enum1 | enum2 % must have more than one enum
+      , enum_field => enum1 | enum2 % must have more than two enum
       , map_field => #{
             field => boolean()
           , required_field := boolean()
@@ -45,12 +45,10 @@
       , {sample/0, [map_field], <<"sample object with 2 fields.">>}
       , {sample/0, [map_field, field], <<"field value must be `true`.">>}
       , {sample/0, [map_field, required_field], <<"field value must be `false`.">>}
-      , {sample/0, [array_field], <<"field value must be `[1,1,2,3,5]`.">>}
+      , {sample/0, [array_field], <<"array size must be exactly 6.">>}
+      , {sample/0, [array_field, []], <<"must be a fibonacci sequence.">>}
       , {sample/0, [required_boolean_field], <<"field value must be `true`.">>}
     ]).
-
-%% openai does not support tuple...
-%% tuple_field => {boolean(), integer(), klsn:binstr()}
 
 -spec schema(type()) -> schema().
 schema(TypeSpec) ->
@@ -67,8 +65,8 @@ schema(TypeSpec) ->
     Type = element(3, element(1, maps:get({type, TypeName, 0}, Types))),
     klsn_map:filter(#{
         name => {value, TypeName}
-      , schema => {value, parse(Type)}
-      , description => lookup_type_description(Module, TypeName, Arity)
+      , schema => {value, build(Type, {Module, TypeName, Arity, []})}
+      , description => lookup_type_description({Module, TypeName, Arity})
     }).
 
 -spec schema(type(), JSON::klsn:binstr()) -> term().
@@ -81,14 +79,17 @@ schema(TypeSpec, JSON) ->
     parse(Type, jsone:decode(JSON)).
 
 
-parse({type, _, map, Properties}) ->
-    #{
+build({type, _, map, Properties}, DescSpec={Module, TypeName, Arity, Path}) ->
+    DescMap = klsn_map:filter(#{
+        description => lookup_field_description(DescSpec)
+    }),
+    DescMap#{
         type => object
       , properties => maps:from_list(lists:map(fun
             ({type, _, map_field_assoc, [{atom, _, KeyName}, ValueType]})->
-                {KeyName, parse(ValueType)};
+                {KeyName, build(ValueType, {Module, TypeName, Arity, Path ++ [KeyName]})};
             ({type, _, map_field_exact, [{atom, _, KeyName}, ValueType]})->
-                {KeyName, parse(ValueType)};
+                {KeyName, build(ValueType, {Module, TypeName, Arity, Path ++ [KeyName]})};
             (UnknownType)->
                 error(unknown_properties, [UnknownType])
         end, Properties))
@@ -100,8 +101,11 @@ parse({type, _, map, Properties}) ->
         end, Properties)
       , additionalProperties => false
     };
-parse({type, _, union, Args}) ->
-    #{
+build({type, _, union, Args}, DescSpec) ->
+    DescMap = klsn_map:filter(#{
+        description => lookup_field_description(DescSpec)
+    }),
+    DescMap#{
         enum => lists:map(fun
             ({atom, _, Enum})->
                 Enum;
@@ -109,31 +113,49 @@ parse({type, _, union, Args}) ->
                 error(unknown_enum, [UnknownType])
         end, Args)
     };
-parse({type, _, tuple, Args}) ->
-    #{
-        type => array
-      , prefixItems => lists:map(fun(Item)->
-            parse(Item)
-        end, Args)
-    };
-parse({type, _, list, [Arg]}) ->
-    #{ type => array, items => parse(Arg) };
-parse({remote_type, _, [{atom,_,unicode}, {atom,_,unicode_binary}, []]}) ->
-    #{ type => string };
-parse({remote_type, _, [{atom, _, klsn}, {atom, _, binstr}, []]}) ->
-    #{ type => string };
-parse({remote_type, _, [{atom, _, klsn_binstr}, {atom, _, binstr}, []]}) ->
-    #{ type => string };
-parse({type, _, integer, _}) ->
-    #{ type => integer };
-parse({type, _, number, _}) ->
-    #{ type => number };
-parse({type, _, float, _}) ->
-    #{ type => number };
-parse({type, _, boolean, _}) ->
-    #{ type => boolean };
-parse(UnknownType) ->
-    error(unknown_type, [UnknownType]).
+build({type, _, list, [Arg]}, DescSpec={Module, TypeName, Arity, Path}) ->
+    klsn_map:filter(#{
+        type => {value, array}
+      , items => {value, build(Arg, {Module, TypeName, Arity, Path ++ [[]]})}
+      , description => lookup_field_description(DescSpec)
+    });
+build({remote_type, _, [{atom,_,unicode}, {atom,_,unicode_binary}, []]}, DescSpec) ->
+    klsn_map:filter(#{
+        type => {value, string}
+      , description => lookup_field_description(DescSpec)
+    });
+build({remote_type, _, [{atom, _, klsn}, {atom, _, binstr}, []]}, DescSpec) ->
+    klsn_map:filter(#{
+        type => {value, string}
+      , description => lookup_field_description(DescSpec)
+    });
+build({remote_type, _, [{atom, _, klsn_binstr}, {atom, _, binstr}, []]}, DescSpec) ->
+    klsn_map:filter(#{
+        type => {value, string}
+      , description => lookup_field_description(DescSpec)
+    });
+build({type, _, integer, _}, DescSpec) ->
+    klsn_map:filter(#{
+        type => {value, integer}
+      , description => lookup_field_description(DescSpec)
+    });
+build({type, _, number, _}, DescSpec) ->
+    klsn_map:filter(#{
+        type => {value, number}
+      , description => lookup_field_description(DescSpec)
+    });
+build({type, _, float, _}, DescSpec) ->
+    klsn_map:filter(#{
+        type => {value, number}
+      , description => lookup_field_description(DescSpec)
+    });
+build({type, _, boolean, _}, DescSpec) ->
+    klsn_map:filter(#{
+        type => {value, boolean}
+      , description => lookup_field_description(DescSpec)
+    });
+build(UnknownType, DescSpec) ->
+    error(unknown_type, [UnknownType, DescSpec]).
 
 
 parse({type, _, map, Properties}, Data) ->
@@ -159,10 +181,6 @@ parse({type, _, union, Args}, Data) ->
             error(unknown_enum, [UnknownType])
     end, Args)),
     maps:get(Data, EnumMap);
-parse({type, _, tuple, Args}, Data) ->
-    erlang:list_to_tuple(lists:map(fun({Item, Elem})->
-        parse(Item, Elem)
-    end, lists:zip(Args, Data)), Data);
 parse({type, _, list, [Arg]}, Data) ->
     lists:map(fun(Elem)->
         parse(Arg, Elem)
@@ -185,17 +203,50 @@ parse(UnknownType, Data) ->
     error(unknown_type, [UnknownType, Data]).
 
 
--spec lookup_type_description(
+-spec lookup_type_description({
         Module :: atom()
       , Type :: atom()
       , Arity :: non_neg_integer()
-    ) -> klsn:maybe(klsn:binstr()).
-lookup_type_description(Module, Type, Arity) ->
+    }) -> klsn:maybe(klsn:binstr()).
+lookup_type_description({Module, Type, Arity}) ->
     Attributes = Module:module_info(attributes),
     Res = lists:filtermap(fun
         ({gpte_type_description, List})->
             Descriptions = lists:filtermap(fun
                 ({{Type0, Arity0}, Description}) when Type0 =:= Type, Arity0 =:= Arity ->
+                    {true, Description};
+                (_) ->
+                    false
+            end, List),
+            case Descriptions of
+                [] ->
+                    false;
+                _ ->
+                    {true, Descriptions}
+            end;
+        (_) ->
+            false
+    end, Attributes),
+    case Res of
+        [[Value|_]|_] ->
+            {value, Value};
+        _ ->
+            none
+    end.
+
+
+-spec lookup_field_description({
+        Module :: atom()
+      , Type :: atom()
+      , Arity :: non_neg_integer()
+      , Path :: [atom()]
+    }) -> klsn:maybe(klsn:binstr()).
+lookup_field_description({Module, Type, Arity, Path}) ->
+    Attributes = Module:module_info(attributes),
+    Res = lists:filtermap(fun
+        ({gpte_type_description, List})->
+            Descriptions = lists:filtermap(fun
+                ({{Type0, Arity0}, Path0, Description}) when Type0 =:= Type, Arity0 =:= Arity, Path0 =:= Path ->
                     {true, Description};
                 (_) ->
                     false
