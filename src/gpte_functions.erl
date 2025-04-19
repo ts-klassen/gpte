@@ -13,7 +13,6 @@
       , state/2
       , upsert_property/5
       , delete_property/2
-      , call/2
     ]).
 
 -export([
@@ -28,6 +27,7 @@
       , state/2
       , upsert_property/5
       , delete_property/2
+      % package private function
       , call/2
     ]).
 
