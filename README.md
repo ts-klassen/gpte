@@ -58,7 +58,7 @@ optionally, you can add description of the type and each field.
 ```
 
 ```erlang
--gpte_type_description([
+-gpte_field_description([
         {sample/0, [], <<"sample object with 10 fields.">>}
       , {sample/0, [unicode_field], <<"field value must be `ユニコード`."/utf8>>}
       , {sample/0, [binstr_field], <<"field value must be `binstr value`.">>}
