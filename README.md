@@ -28,7 +28,7 @@ How to Specify Response with Erlang Type Definition
 
 Here we have a type definition of `gpte_schema:sample/0`.
 
-```
+```erlang
 -module(gpte_schema).
 
 -export_type([sample/0]).
@@ -51,6 +51,31 @@ Here we have a type definition of `gpte_schema:sample/0`.
     }.
 ```
 
+optionally, you can add description of the type and each field.
+
+```erlang
+-gpte_type_description({sample/0, <<"This is a sample type.">>}).
+```
+
+```erlang
+-gpte_type_description([
+        {sample/0, [], <<"sample object with 10 fields.">>}
+      , {sample/0, [unicode_field], <<"field value must be `ユニコード`."/utf8>>}
+      , {sample/0, [binstr_field], <<"field value must be `binstr value`.">>}
+      , {sample/0, [klsn_binstr_field], <<"field value must be `klsn_binstr value`.">>}
+      , {sample/0, [integer_field], <<"field value must be `512`.">>}
+      , {sample/0, [number_field], <<"field value must be `1.024`.">>}
+      , {sample/0, [boolean_field], <<"field value must be `false`.">>}
+      , {sample/0, [enum_field], <<"field value must be `enum2`.">>}
+      , {sample/0, [map_field], <<"sample object with 2 fields.">>}
+      , {sample/0, [map_field, field], <<"field value must be `true`.">>}
+      , {sample/0, [map_field, required_field], <<"field value must be `false`.">>}
+      , {sample/0, [array_field], <<"array size must be exactly 6.">>}
+      , {sample/0, [array_field, []], <<"must be a fibonacci sequence.">>}
+      , {sample/0, [required_boolean_field], <<"field value must be `true`.">>}
+    ]).
+```
+
 We can specify the response to comply with `{gpte_schema, sample, 0}` (`gpte_schema:sample/0`) like this.
 
 ```
@@ -69,15 +94,15 @@ gpte_schema:schema(Sample, Res).
 1> Chat2 = chat_gpte:system(<<"Answer in JSON format.">>, Chat1),
 1> {Res, Chat3} = chat_gpte:ask(<<"Please fill out the sample.">>, Chat2),
 1> gpte_schema:schema(Sample, Res).
-#{array_field => [1,2,3,4,5],
-  binstr_field => <<"101010">>,boolean_field => true,
-  enum_field => enum1,integer_field => 42,
-  klsn_binstr_field => <<"110011">>, 
-  map_field => #{field => false,required_field => true},
-  number_field => 3.14,required_boolean_field => false,
+#{array_field => [0,1,1,2,3,5],
+  binstr_field => <<"binstr value">>,boolean_field => false,
+  enum_field => enum2,integer_field => 512,
+  klsn_binstr_field => <<"klsn_binstr value">>,
+  map_field => #{field => true,required_field => false},
+  number_field => 1.024,required_boolean_field => true,
   unicode_field =>
-      <<227,129,147,227,130,147,227,129,171,227,129,161,227,
-        129,175>>}
+      <<227,131,166,227,131,139,227,130,179,227,131,188,227,
+        131,137>>}
 ```
 
 
