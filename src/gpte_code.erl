@@ -102,7 +102,31 @@ run_user_cmd([#{cmd:=file, file:=File}|CMDs], Text0, Opt) ->
                 {ok, Data} ->
                     klsn_io:format("gpte: File read from ~ts~n", [Path]),
                     Annotation = <<"@file=", File/binary>>,
-                    Code = <<Annotation/binary, "\n```\n", Data/binary, "\n```\n">>,
+                    CodeFence = case
+                        re:run(Data, <<"(^|\n)```+">>, [global])
+                    of
+                        nomatch ->
+                            <<"```">>;
+                        {match, Matches} ->
+                            CFLen = lists:max(lists:map(fun
+                                ([{_, Len},{_,0}])->
+                                    Len+1;
+                                ([{_, Len},{_,1}])->
+                                    Len
+                            end, Matches)),
+                            iolist_to_binary(
+                                lists:duplicate(CFLen, $`)
+                            )
+                    end,
+                    Code = <<
+                        Annotation/binary
+                      , "\n"
+                      , CodeFence/binary
+                      , "\n"
+                      , Data/binary
+                      , "\n"
+                      , CodeFence/binary
+                      , "\n">>,
                     Text = binary:replace(Text0, Annotation, Code, [global]),
                     run_user_cmd(CMDs, Text, Opt);
                 Error ->
@@ -198,7 +222,7 @@ git_commit(_, _) ->
 esc(Bin) ->
      binary:replace(Bin, <<"'">>, <<"'\"'\"'">>, [global]).
 
--type decode_cmd_state() :: md | cmd | code.
+-type decode_cmd_state() :: md | cmd | {code, klsn:binstr()}.
 -type cmd_list() :: [cmd_map()].
 -type cmd_map() :: #{
         cmd := file
@@ -227,12 +251,18 @@ decode_cmd([<<"@file=", File/binary>>|MD], md, CMD) ->
     decode_cmd(MD, cmd, [#{cmd=>file, file=>File, data=> <<>>}|CMD]);
 decode_cmd([<<"@commit=", MSG/binary>>|MD], md, CMD) ->
     decode_cmd(MD, md, [#{cmd=>commit, msg=>MSG}|CMD]);
-decode_cmd([<<"```", _/binary>>|MD], cmd, CMD) ->
-    decode_cmd(MD, code, CMD);
-decode_cmd([<<"```", _/binary>>|MD], code, CMD) ->
-    decode_cmd(MD, md, CMD);
-decode_cmd([Line|MD], code, [#{data:=Data}=CMD|CMDs]) ->
-    decode_cmd(MD, code, [CMD#{data:= <<Data/binary, Line/binary, "\n">>}|CMDs]);
+decode_cmd([<<"```", _/binary>>=Line|MD], cmd, CMD) ->
+    {match,[Part]} = re:run(Line, <<"^```+">>),
+    CodeFence = binary:part(Line, Part),
+    decode_cmd(MD, {code, CodeFence}, CMD);
+decode_cmd([Line|MD], {code, CodeFence}, Acc=[#{data:=Data}=CMD|CMDs]) ->
+    CFL = size(CodeFence),
+    case Line of
+        <<CodeFence:CFL/binary, _/binary>> ->
+            decode_cmd(MD, md, Acc);
+        _ ->
+            decode_cmd(MD, {code, CodeFence}, [CMD#{data:= <<Data/binary, Line/binary, "\n">>}|CMDs])
+    end;
 decode_cmd([_|MD], cmd, CMD) ->
     decode_cmd(MD, md, CMD);
 decode_cmd([_|MD], md, CMD) ->
@@ -259,6 +289,9 @@ Hello world!
 Code block with `@file` annotation must include the entire file content.
 This will be used to overwrite files.
 
+Annotation must start from the head of its line. Which means there should be a Line Feed or a BOF right before `@`.
+Code fence (three or more backticks) must follow right after the annotation and its Line Feed.
+
 Other than that, it's just markdown. You can write whatever you want.
 
 Try annotating under the following conditions:
@@ -284,6 +317,6 @@ educate_annotation(Chat0, false) ->
     Messages = [{assistant,<<"Understood! I'll make sure to include the `@commit` annotation and use the `@file` annotation when providing entire code files in future responses.">>},
  {user,<<"Great! Make sure to include the `@commit` annotation and use the `@file` annotation when you print the entire code.">>},
  {assistant,<<"@commit=JavaScript Hello world\n\nThis is a hello world example for JavaScript.\n\n@file=hello_world.js\n```\nconsole.log('hello world!');\n```">>},
- {user,<<"Here are some markdown annotation rules you have to follow.\n\nYou will annotate a one-line commit message like this at the top.\n\n@commit=my first commit\n\nThis commit message will be used if the user decides to accept your changes.\n\nWe annotate file names like this.\n\n@file=testfile.txt\n```\nHello world!\n```\n\nCode block with `@file` annotation must include the entire file content.\nThis will be used to overwrite files.\n\nOther than that, it's just markdown. You can write whatever you want.\n\nTry annotating under the following conditions:\n\n- The commit message is `JavaScript Hello world`\n- Let the user know that this is a hello world example for JavaScript\n- The file name is `hello_world.js`\n- The content is `console.log('hello world!');`\n">>}],
+ {user,<<"Here are some markdown annotation rules you have to follow.\n\nYou will annotate a one-line commit message like this at the top.\n\n@commit=my first commit\n\nThis commit message will be used if the user decides to accept your changes.\n\nWe annotate file names like this.\n\n@file=testfile.txt\n```\nHello world!\n```\n\nCode block with `@file` annotation must include the entire file content.\nThis will be used to overwrite files.\n\nAnnotation must start from the head of its line. Which means there should be a Line Feed or a BOF right before `@`.\nCode fence (three or more backticks) must follow right after the annotation and its Line Feed.\n\nOther than that, it's just markdown. You can write whatever you want.\n\nTry annotating under the following conditions:\n\n- The commit message is `JavaScript Hello world`\n- Let the user know that this is a hello world example for JavaScript\n- The file name is `hello_world.js`\n- The content is `console.log('hello world!');`\n">>}],
     chat_gpte:messages(Messages, Chat0).
 
