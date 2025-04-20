@@ -170,9 +170,11 @@ build_function({Module, FunName, Arity=1}) ->
             ok;
         {remote_type,_,[{atom,_,klsn_binstr}, {atom,_,binstr}, []]} ->
             ok;
+        {remote_type,_,[{atom,_,jsone}, {atom,_,json_value}, []]} ->
+            ok;
         _ ->
             error({gpte_tools_build_error, iolist_to_binary(io_lib:format(
-                "`~p:~p/~p` must return unicode:unicode_binary()"
+                "`~p:~p/~p` must return unicode:unicode_binary() of jsone:json_value()"
               , [Module, FunName, Arity]
             ))})
     end,

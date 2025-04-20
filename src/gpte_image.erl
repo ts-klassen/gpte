@@ -11,12 +11,14 @@
       , lookup_revised_prompt/1
       , lookup_file/1
       , on_create/2
+      , v1_images_generations/1
     ]).
 
 -export_type([
         generations/0
       , model/0
       , on_create/0
+      , v1_images_generations_args/0
     ]).
 
 -opaque generations() :: #{
@@ -33,6 +35,55 @@
 -type model() :: unicode:unicode_binary().
 
 -type on_create() :: fun((Png::binary())->ok).
+
+
+-gpte_type_description({v1_images_generations_args/0, <<"This is a sample type.">>}).
+-type v1_images_generations_args() :: #{
+        payload := #{
+            prompt := klsn:binstr()
+          , model => 'dall-e-2' | 'dall-e-3'
+          , n => integer()
+          , quality => standard | hd
+          , size => '256x256' | '512x512' | '1024x1024' | '1792x1024' | '1024x1792'
+          , style => vivid | natural
+        }
+    }.
+-gpte_field_description([
+        {v1_images_generations_args/0, [], <<"argument for erlang function gpte_image:v1_images_generations/1.">>}
+      , {v1_images_generations_args/0, [payload], <<"Request body of post
+https://api.openai.com/v1/images/generations">>}
+      , {v1_images_generations_args/0, [payload, prompt], <<"A text description of the desired image(s). The maximum length is 1000 characters for dall-e-2 and 4000 characters for dall-e-3.">>}
+      , {v1_images_generations_args/0, [payload, model], <<"The model to use for image generation.">>}
+      , {v1_images_generations_args/0, [payload, n], <<"The number of images to generate. Must be between 1 and 10. For dall-e-3, only n=1 is supported.">>}
+      , {v1_images_generations_args/0, [payload, quality], <<"The quality of the image that will be generated. hd creates images with finer details and greater consistency across the image. This param is only supported for dall-e-3.">>}
+      , {v1_images_generations_args/0, [payload, size], <<"The size of the generated images. Must be one of 256x256, 512x512, or 1024x1024 for dall-e-2. Must be one of 1024x1024, 1792x1024, or 1024x1792 for dall-e-3 models.">>}
+      , {v1_images_generations_args/0, [payload, style], <<"The style of the generated images. Must be one of vivid or natural. Vivid causes the model to lean towards generating hyper-real and dramatic images. Natural causes the model to produce more natural, less hyper-real looking images. This param is only supported for dall-e-3.">>}
+    ]).
+
+
+-gpte_function_description({v1_images_generations/1, <<"Creates an image given a prompt.">>}).
+-gpte_function_option({v1_images_generations/1, #{
+        json_reply => true
+      , catch_exception => true
+      , report_exception_detail => false
+      , report_exception_detail_to_ai => true
+    }}).
+
+
+-spec v1_images_generations(v1_images_generations_args()) -> jsone:json_value().
+v1_images_generations(#{payload := Payload}) ->
+    Res = gpte_api:image_generations(Payload),
+    #{<<"data">>:=[#{<<"url">>:=Url}|_]} = Res,
+    {ok, Cwd} = file:get_cwd(),
+    Path = binary_to_list(iolist_to_binary(save(Cwd, Url, data(Url)))),
+    EscPath = string:replace(Path, "'", "'\"'\"'", [global]),
+    os:cmd("eog '" ++ EscPath ++ "'&"),
+    #{
+        payload => Res
+      , saved_path => iolist_to_binary(Path)
+      , which_eog => iolist_to_binary(os:cmd("which eog"))
+    }.
+
 
 -spec new_generations() -> generations().
 new_generations() -> #{
