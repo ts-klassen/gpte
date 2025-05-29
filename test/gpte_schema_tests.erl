@@ -75,9 +75,9 @@ schema_property_descriptions_test() ->
     ?assertEqual(number, maps:get(type, NF)),
     ?assertEqual(<<"field value must be `1.024`.">>, maps:get(description, NF)),
     %% boolean_field
-    BF2 = GP(boolean_field),
-    ?assertEqual(boolean, maps:get(type, BF2)),
-    ?assertEqual(<<"field value must be `false`.">>, maps:get(description, BF2)),
+    BoolF = GP(boolean_field),
+    ?assertEqual(boolean, maps:get(type, BoolF)),
+    ?assertEqual(<<"field value must be `false`.">>, maps:get(description, BoolF)),
     %% enum_field
     EF = GP(enum_field),
     ?assertEqual([enum1, enum2], maps:get(enum, EF)),
