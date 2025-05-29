@@ -131,18 +131,8 @@ build_function({Module, FunName, Arity=1}) ->
               , [Module, FunName, Arity]
             ))})
     end,
-    {ok, Concrete} = dialyzer_utils:get_core_from_beam(code:which(Module)),
-    {ok, Map, _} = dialyzer_utils:get_spec_info(Module, Concrete, dict:new()),
-    FullSpec = case klsn_map:lookup([{Module, FunName, Arity}], Map) of
-        {value, FullSpec0} ->
-            FullSpec0;
-        none ->
-            error({gpte_tools_build_error, iolist_to_binary(io_lib:format(
-                "function `~p:~p/~p` must have a spec"
-              , [Module, FunName, Arity]
-            ))})
-    end,
-    Spec = element(1, hd(element(3, element(2, FullSpec)))),
+    Specs = klsn_code:spec({Module, FunName, Arity}),
+    [Spec | _] = Specs,
     {type, _, 'fun', [FunArgs, FunReturn]} = Spec,
     ArgsType = case FunArgs of
         {type,_,product,[{user_type,_,ArgTypeName,ArgArity}]} ->
