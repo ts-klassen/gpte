@@ -14,7 +14,6 @@ main(Args) ->
 
 
 code(_) ->
-    application:ensure_all_started(gpte),
     {ok, Cwd} = file:get_cwd(),
     Opt = #{dir => unicode:characters_to_binary(Cwd)
           , commit_all_messages => true},
