@@ -60,9 +60,7 @@ schema(TypeSpec) ->
         _ ->
             0
     end,
-    {ok, Concrete} = dialyzer_utils:get_core_from_beam(code:which(Module)),
-    {ok, Types} = dialyzer_utils:get_record_and_type_info(Concrete),
-    Type = element(3, element(1, maps:get({type, TypeName, 0}, Types))),
+    {_, Type, _} = klsn_code:type({Module, TypeName, Arity}),
     klsn_map:filter(#{
         name => {value, TypeName}
       , schema => {value, build(Type, {Module, TypeName, Arity, []})}
@@ -73,9 +71,14 @@ schema(TypeSpec) ->
 schema(TypeSpec, JSON) ->
     Module = element(1, TypeSpec),
     TypeName = element(2, TypeSpec),
-    {ok, Concrete} = dialyzer_utils:get_core_from_beam(code:which(Module)),
-    {ok, Types} = dialyzer_utils:get_record_and_type_info(Concrete),
-    Type = element(3, element(1, maps:get({type, TypeName, 0}, Types))),
+    %% Determine arity (default 0 if not specified)
+    Arity = case TypeSpec of
+        {_, _, Arity0} ->
+            Arity0;
+        _ ->
+            0
+    end,
+    {_, Type, _} = klsn_code:type({Module, TypeName, Arity}),
     parse(Type, jsone:decode(JSON)).
 
 
