@@ -18,6 +18,8 @@
       , system/2
       , ask/1
       , ask/2
+      , ask_n/2
+      , ask_n/3
       , function/2
       , tools/2
       , total_tokens/1
@@ -124,13 +126,36 @@ ask(Question, Chat0) ->
       , content => Question
     },
     run_moderation(Question, fun(_, Chat10) ->
-        send_message_(Message, Chat10)
+        hd(send_message_(Message, Chat10))
     end, Chat0).
+
+-spec ask_n(
+        unicode:unicode_binary(), non_neg_integer()
+    ) -> [unicode:unicode_binary()].
+ask_n(Question, N) ->
+    {Answers, _Chats} = lists:unzip(ask_n(Question, N, new())),
+    Answers.
+
+-spec ask_n(
+        unicode:unicode_binary(), non_neg_integer(), chat()
+    ) -> [{unicode:unicode_binary(), chat()}].
+ask_n(Question, N, Chat0) ->
+    Message = #{
+        role => user
+      , content => Question
+    },
+    Chat10 = klsn_map:upsert([request, n], N, Chat0),
+    Chats = run_moderation(Question, fun(_, Chat20) ->
+        send_message_(Message, Chat20)
+    end, Chat10),
+    lists:map(fun({Ans, Chat})->
+        {Ans, klsn_map:remove([request, n], Chat)}
+    end, Chats).
 
 
 
 -spec send_message_(message_() | [message_(), ...], chat()
-    ) -> {unicode:unicode_binary(), chat()}.
+    ) -> [{unicode:unicode_binary(), chat()}].
 send_message_([Message], Chat0) ->
     send_message_(Message, Chat0);
 send_message_([Message|Messages], Chat0) ->
@@ -138,18 +163,18 @@ send_message_([Message|Messages], Chat0) ->
     send_message_(Messages, Chat1);
 send_message_(Message0, Chat0) ->
     Chat1 = message_(Message0, Chat0),
-    Chat = request(Chat1),
-    Message = message_(Chat),
-    case Message of
-        #{function_call:=FC} ->
+    Chats = request(Chat1),
+    ChatWithMsg = lists:map(fun(Chat) ->
+        {message_(Chat), Chat}
+    end, Chats),
+    lists:map(fun
+        ({#{function_call:=FC}, Chat}) ->
             function_call_(FC, Chat);
-        #{tool_calls:=TC} ->
+        ({#{tool_calls:=TC}, Chat}) ->
             tool_calls_(TC, Chat);
-        #{content:=Content} ->
+        ({#{content:=Content}, Chat}) ->
             {Content, Chat}
-    end.
-
-
+    end, ChatWithMsg).
 
 -spec function_call_(map(), chat()) -> {unicode:unicode_binary(), chat()}.
 function_call_(#{<<"name">>:=Name, <<"arguments">>:=Args}, Chat0) ->
@@ -161,7 +186,7 @@ function_call_(#{<<"name">>:=Name, <<"arguments">>:=Args}, Chat0) ->
       , content => Res
     },
     Chat = klsn_map:upsert([functions, Name], Choice, Chat0),
-    send_message_(Message, Chat).
+    hd(send_message_(Message, Chat)).
 
 
 -spec tool_calls_(map(), chat()) -> {unicode:unicode_binary(), chat()}.
@@ -186,38 +211,39 @@ tool_calls_(TC, Chat0) ->
           , content => Fun(Args)
         }
     end, TC),
-    send_message_(Messages, Chat0).
+    hd(send_message_(Messages, Chat0)).
     
     
 
--spec request(chat()) -> chat().
+-spec request(chat()) -> [chat()].
 request(#{request:=Request} = Chat0) ->
     Payload = gpte_api:chat(Request),
     Chat1 = payload_(Payload, Chat0),
-    case Payload of
-        #{<<"choices">>:=[#{<<"message">>:=#{
+    #{<<"choices">>:=Choices} = Payload,
+    lists:map(fun
+        (#{<<"message">>:=#{
             <<"tool_calls">>:=TC
           , <<"role">>:=<<"assistant">>
           , <<"content">>:=Content
-        }}|_]} ->
+        }}) ->
             message_(#{
                 role=>assistant, content=>Content, tool_calls=>TC
             }, Chat1);
-        #{<<"choices">>:=[#{<<"message">>:=#{
+        (#{<<"message">>:=#{
             <<"function_call">>:=FC
           , <<"role">>:=<<"assistant">>
           , <<"content">>:=Content
-        }}|_]} ->
+        }}) ->
             message_(#{
                 role=>assistant, content=>Content, function_call=>FC
             }, Chat1);
-        #{<<"choices">>:=[#{<<"message">>:=#{
+        (#{<<"message">>:=#{
             <<"content">>:=Content,<<"role">>:=<<"assistant">>
-        }}|_]} ->
+        }}) ->
             message_(#{role=>assistant, content=>Content}, Chat1);
-        _ ->
+        (_) ->
             Chat1
-    end.
+    end, Choices).
 
 
 % Getters and Setters
