@@ -2,6 +2,8 @@
 
 -deprecated([{function, 2}]).
 
+-define(DEFAULT_MODEL, 'gpt-4o-mini').
+
 -export([
         new/0
       , model/1
@@ -20,6 +22,10 @@
       , ask/2
       , ask_n/2
       , ask_n/3
+      , ask_with_vision/2
+      , ask_with_vision/3
+      , ask_n_with_vision/3
+      , ask_n_with_vision/4
       , function/2
       , tools/2
       , total_tokens/1
@@ -35,6 +41,7 @@
       , on_moderation/0
       , moderation_result/0
       , usage/0
+      , image_url/0
     ]).
 
 -opaque chat() :: #{
@@ -59,11 +66,24 @@
 
 -type message_() :: #{
         role := role()
-      , content := unicode:unicode_binary()
+      , content := unicode:unicode_binary() | content_()
       , function_call => unicode:unicode_binary()
       , tool_calls => map()
       , tool_call_id => unicode:unicode_binary()
     }.
+
+-type image_url() :: unicode:unicode_binary().
+
+-type content_() :: [
+        #{
+            type := text
+          , text := unicode:unicode_binary()
+        }
+      | #{
+            type := image_url
+          , image_url := #{ url := image_url() }
+        }
+    ].
 
 -type function_() :: #{
         name := unicode:unicode_binary()
@@ -100,7 +120,7 @@
 new() ->
     #{
         request => #{
-            model => <<"gpt-4o-mini">>
+            model => ?DEFAULT_MODEL
           , messages => []
         }
       , payloads => []
@@ -129,6 +149,34 @@ ask(Question, Chat0) ->
         hd(send_message_(Message, Chat10))
     end, Chat0).
 
+-spec ask_with_vision(
+        unicode:unicode_binary(), image_url()
+    ) -> unicode:unicode_binary().
+ask_with_vision(Question, Image) ->
+    {Res, _} = ask_with_vision(Question, Image, new()),
+    Res.
+
+-spec ask_with_vision(
+        unicode:unicode_binary(), image_url(), chat()
+    ) -> {unicode:unicode_binary(), chat()}.
+ask_with_vision(Question, Image, Chat0) ->
+    Message = #{
+        role => user
+      , content => [
+            #{
+                type => text
+              , text => Question
+            }
+          , #{
+                type => image_url
+              , image_url => #{ url => Image }
+            }
+        ]
+    },
+    run_moderation(Question, fun(_, Chat10) ->
+        hd(send_message_(Message, Chat10))
+    end, Chat0).
+
 -spec ask_n(
         unicode:unicode_binary(), non_neg_integer()
     ) -> [unicode:unicode_binary()].
@@ -143,6 +191,38 @@ ask_n(Question, N, Chat0) ->
     Message = #{
         role => user
       , content => Question
+    },
+    Chat10 = klsn_map:upsert([request, n], N, Chat0),
+    Chats = run_moderation(Question, fun(_, Chat20) ->
+        send_message_(Message, Chat20)
+    end, Chat10),
+    lists:map(fun({Ans, Chat})->
+        {Ans, klsn_map:remove([request, n], Chat)}
+    end, Chats).
+
+-spec ask_n_with_vision(
+        unicode:unicode_binary(), non_neg_integer(), image_url()
+    ) -> [unicode:unicode_binary()].
+ask_n_with_vision(Question, N, Image) ->
+    {Answers, _} = lists:unzip(ask_n_with_vision(Question, N, Image, new())),
+    Answers.
+
+-spec ask_n_with_vision(
+        unicode:unicode_binary(), non_neg_integer(), image_url(), chat()
+    ) -> [{unicode:unicode_binary(), chat()}].
+ask_n_with_vision(Question, N, Image, Chat0) ->
+    Message = #{
+        role => user
+      , content => [
+            #{
+                type => text
+              , text => Question
+            }
+          , #{
+                type => image_url
+              , image_url => #{ url => Image }
+            }
+        ]
     },
     Chat10 = klsn_map:upsert([request, n], N, Chat0),
     Chats = run_moderation(Question, fun(_, Chat20) ->
@@ -212,8 +292,7 @@ tool_calls_(TC, Chat0) ->
         }
     end, TC),
     hd(send_message_(Messages, Chat0)).
-    
-    
+
 
 -spec request(chat()) -> [chat()].
 request(#{request:=Request} = Chat0) ->
