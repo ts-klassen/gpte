@@ -20,6 +20,7 @@
       , response_id/0
       , user_input/0
       , session_opts/0
+      , sandbox_policy/0
       , user_input_opts/0
       , approval_decision/0
       , env/0
@@ -50,11 +51,35 @@
 -type response_id() :: unicode:unicode_binary().
 -type user_input() :: unicode:unicode_binary().
 -type env() :: #{unicode:unicode_binary() => unicode:unicode_binary()}.
+%% Sandbox policy sent in ConfigureSession (internally tagged enum on CLI side)
+-type sandbox_policy() :: #{
+        mode := unicode:unicode_binary() % "read-only" | "workspace-write" | "danger-full-access"
+      , network_access => boolean()
+      , exclude_tmpdir_env_var => boolean()
+      , exclude_slash_tmp => boolean()
+    }.
+
+%% Session options accepted by mk_configure_session/1
+%% Note: These are flattened by the transport encoder prior to submission.
+%% Required: model, workspace_dir
+%% Optional: cwd, env, protocol_version, provider, model_reasoning_effort,
+%%           model_reasoning_summary, approval_policy, sandbox_policy,
+%%           model_supports_reasoning_summaries, disable_response_storage,
+%%           file_opener
 -type session_opts() :: #{
-        model => unicode:unicode_binary()
-      , workspace_dir => unicode:unicode_binary()
+        model := unicode:unicode_binary()
+      , workspace_dir := unicode:unicode_binary()
+      , cwd => unicode:unicode_binary()
       , env => env()
       , protocol_version => pos_integer()
+      , provider => unicode:unicode_binary() % e.g. "openai", "anthropic"; encoder builds the struct
+      , model_reasoning_effort => unicode:unicode_binary() % "low" | "medium" | "high" | "none"
+      , model_reasoning_summary => unicode:unicode_binary() % "auto" | "concise" | "detailed" | "none"
+      , approval_policy => unicode:unicode_binary() % "untrusted" | "on-failure" | "on-request" | "never"
+      , sandbox_policy => sandbox_policy()
+      , model_supports_reasoning_summaries => boolean()
+      , disable_response_storage => boolean()
+      , file_opener => unicode:unicode_binary() % "vscode" | "cursor" | "windsurf" | "none"
     }.
 -type user_input_opts() :: #{
         last_response_id => response_id()

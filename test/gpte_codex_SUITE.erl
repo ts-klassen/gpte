@@ -32,7 +32,7 @@ end_per_suite(_Cfg) ->
 
 init_per_testcase(TC, Cfg) ->
     %% Prefer explicit workspace_dir from ct:get_config; otherwise create per-case dir under priv_dir
-    case ct:get_config(workspace_dir, undefined) of
+    Cfg1 = case ct:get_config(workspace_dir, undefined) of
         undefined ->
             Priv = proplists:get_value(priv_dir, Cfg),
             Ws0 = filename:join(Priv, atom_to_list(TC)),
@@ -41,7 +41,8 @@ init_per_testcase(TC, Cfg) ->
             [{workspace_dir, Ws} | Cfg];
         Ws ->
             [{workspace_dir, unicode:characters_to_binary(Ws)} | Cfg]
-    end.
+    end,
+    maybe_skip_network(TC, Cfg1).
 
 end_per_testcase(_TC, _Cfg) ->
     ok.
@@ -53,7 +54,7 @@ smoke_open_close(Cfg) ->
     Ws = get_ws(Cfg),
     Args = get_args(),
     Env = get_env(),
-    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws},
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws, provider => <<"openai">>},
     C = gpte_codex:open(Opt),
     ok = gpte_codex:close(C).
 
@@ -62,9 +63,19 @@ session_user_input_flow(Cfg) ->
     Ws = get_ws(Cfg),
     Args = get_args(),
     Env = get_env(),
-    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws},
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws, provider => <<"openai">>},
     C0 = gpte_codex:open(Opt),
-    Sess = #{model => <<"gpt-5-nano">>, workspace_dir => Ws, cwd => Ws, env => #{}, protocol_version => 1},
+    Sess = #{
+        model => <<"gpt-5-nano">>,
+        workspace_dir => Ws,
+        cwd => Ws,
+        env => #{},
+        protocol_version => 1,
+        model_reasoning_effort => <<"medium">>,
+        model_reasoning_summary => <<"none">>,
+        approval_policy => <<"on-request">>,
+        sandbox_policy => #{mode => <<"workspace-write">>, network_access => false}
+    },
     ok = gpte_codex:configure_session(Sess, C0),
     ok = gpte_codex:user_input(<<"ct-1">>, <<"Hello from CT">>, C0),
     {Events, C1} = gpte_codex:recv_events(120000, C0),
@@ -85,9 +96,19 @@ say_this_is_a_test(Cfg) ->
     Ws = get_ws(Cfg),
     Args = get_args(),
     Env = get_env(),
-    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws},
+    Opt = #{program => Prog, args => Args, on_invalid => unknown, cwd => Ws, provider => <<"openai">>},
     C0 = gpte_codex:open(Opt),
-    Sess = #{model => <<"gpt-5-nano">>, workspace_dir => Ws, cwd => Ws, env => #{}, protocol_version => 1},
+    Sess = #{
+        model => <<"gpt-5-nano">>,
+        workspace_dir => Ws,
+        cwd => Ws,
+        env => #{},
+        protocol_version => 1,
+        model_reasoning_effort => <<"medium">>,
+        model_reasoning_summary => <<"none">>,
+        approval_policy => <<"on-request">>,
+        sandbox_policy => #{mode => <<"workspace-write">>, network_access => false}
+    },
     ok = gpte_codex:configure_session(Sess, C0),
     %% Standard API test prompt
     ok = gpte_codex:user_input(<<"ct-2">>, <<"Say this is a test">>, C0),
@@ -175,3 +196,22 @@ ensure_dir(Dir) ->
         true -> ok;
         false -> filelib:ensure_dir(filename:join(Dir, ".keep")), file:make_dir(Dir), ok
     end.
+
+maybe_skip_network(TC, Cfg) when TC =:= session_user_input_flow; TC =:= say_this_is_a_test ->
+    case has_api_creds() of
+        true -> Cfg;
+        false -> {skip, "Missing API key (set OPENAI_API_KEY or ANTHROPIC_API_KEY)"}
+    end;
+maybe_skip_network(_TC, Cfg) ->
+    Cfg.
+
+has_api_creds() ->
+    case ct:get_config(codex_env, undefined) of
+        M when is_map(M) ->
+            has_any_key(M, ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]);
+        _ ->
+            (os:getenv("OPENAI_API_KEY") =/= false) orelse (os:getenv("ANTHROPIC_API_KEY") =/= false)
+    end.
+
+has_any_key(Map, Keys) ->
+    lists:any(fun(K) -> maps:is_key(unicode:characters_to_binary(K), normalize_env_map(Map)) end, Keys).

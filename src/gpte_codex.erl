@@ -39,6 +39,7 @@
       , args => [unicode:unicode_binary()]
       , cwd => unicode:unicode_binary()
       , env => gpte_codex_proto:env()
+      , provider => unicode:unicode_binary()
       , on_invalid => drop | unknown
     }.
 
@@ -77,7 +78,7 @@ open(Opt0) ->
         _ -> PortOpts0
     end,
     PortOpts = case Opt of
-        #{env := EnvMap} when is_map(EnvMap) ->
+        #{env := EnvMap} when is_map(EnvMap), map_size(EnvMap) > 0 ->
             EnvList = [
                 {unicode:characters_to_list(K), unicode:characters_to_list(V)}
                 || {K, V} <- maps:to_list(EnvMap)
@@ -118,7 +119,7 @@ buffer(C) ->
 -spec send_op(gpte_codex_proto:op(), codex()) -> ok.
 send_op(Op, C) ->
     Port = port(C),
-    Frame = encode_outgoing(Op),
+    Frame = encode_outgoing(Op, C),
     case erlang:port_command(Port, Frame) of
         true -> ok;
         false -> erlang:error({port_command_failed, Frame})
@@ -228,13 +229,28 @@ recv_drain(Port, OnInvalid, C0, EvAccRev) ->
         {lists:reverse(EvAccRev), C0}
     end.
 
-encode_outgoing(Op) when is_map(Op) ->
+encode_outgoing(Op, C) when is_map(Op) ->
     %% Codex CLI expects submissions as: { id, op: { type, ... } }
+    %% Determine provider from Op/session, opts, or env heuristics.
+    Provider0 = choose_provider(Op, C),
     OpInner = case maps:find(op, Op) of
         {ok, Type} ->
             Data0 = maps:remove(op, Op),
             Data1 = transform_op(Type, Data0),
-            Data1#{type => Type};
+            %% Build provider info object
+            PInfo = provider_info(Provider0, C),
+            case Type of
+                configure_session -> ok = validate_configure_session(Data1, PInfo);
+                _ -> ok
+            end,
+            case {Type, PInfo} of
+                {configure_session, undefined} -> erlang:error({badarg, provider_missing, provider_required_description()});
+                _ -> ok
+            end,
+            case PInfo of
+                undefined -> Data1#{type => Type};
+                _ -> Data1#{type => Type, provider => PInfo}
+            end;
         error -> Op
     end,
     IdBin = integer_to_binary(erlang:unique_integer([monotonic, positive])),
@@ -242,8 +258,13 @@ encode_outgoing(Op) when is_map(Op) ->
     gpte_codex_proto:frame(gpte_codex_proto:encode_op(Top)).
 
 transform_op(configure_session, Data0 = #{session := _Sess0}) ->
-    %% Do not inject provider; rely on Codex defaults to restore prior working state.
-    Data0;
+    %% Flatten session fields into the op payload and remove provider from session.
+    Sess0 = maps:get(session, Data0),
+    Sess1 = case Sess0 of
+        M when is_map(M) -> maps:remove(provider, M);
+        Other -> Other
+    end,
+    maps:merge(maps:remove(session, Data0), Sess1);
 transform_op(user_input, Data0) ->
     case maps:find(input, Data0) of
         {ok, Input} ->
@@ -253,3 +274,121 @@ transform_op(user_input, Data0) ->
     end;
 transform_op(_, Data) ->
     Data.
+
+choose_provider(Op, C) ->
+    %% Priority (explicit only; no heuristics):
+    %% 1) Op top-level 'provider'
+    %% 2) Op.session 'provider'
+    %% 3) C.opts 'provider'
+    case maps:get(provider, Op, undefined) of
+        P when is_binary(P); is_list(P); is_atom(P) -> normalize_provider(P);
+        _ ->
+            SessP = case maps:get(session, Op, undefined) of
+                S when is_map(S) -> maps:get(provider, S, undefined);
+                _ -> undefined
+            end,
+            case SessP of
+                P2 when is_binary(P2); is_list(P2); is_atom(P2) -> normalize_provider(P2);
+                _ ->
+                    Opts = opts(C),
+                    case maps:get(provider, Opts, undefined) of
+                        P3 when is_binary(P3); is_list(P3); is_atom(P3) -> normalize_provider(P3);
+                        _ -> undefined
+                    end
+            end
+    end.
+
+normalize_provider(P) when is_binary(P) -> P;
+normalize_provider(P) when is_list(P) -> unicode:characters_to_binary(P);
+normalize_provider(P) when is_atom(P) -> normalize_provider(atom_to_list(P));
+normalize_provider(_) -> undefined.
+
+%% Heuristic helpers removed to avoid implicit defaults
+
+provider_info(undefined, _C) -> undefined;
+provider_info(Provider, _C) ->
+    P = normalize_provider(Provider),
+    case P of
+        undefined -> undefined;
+        _ ->
+            %% Minimal struct: refer to a known provider by id; let CLI read env from process/session config
+            #{id => P}
+    end.
+
+%% Validate ConfigureSession payload has all required fields with valid values.
+validate_configure_session(Map, ProviderInfo) when is_map(Map) ->
+    Miss0 = [],
+    Miss1 = case maps:is_key(model, Map) of true -> Miss0; false -> [missing_model() | Miss0] end,
+    Miss2 = case maps:is_key(workspace_dir, Map) of true -> Miss1; false -> [missing_workspace_dir() | Miss1] end,
+    Miss3 = case maps:find(model_reasoning_effort, Map) of
+        {ok, V1} -> case enum_member(V1, [<<"low">>, <<"medium">>, <<"high">>, <<"none">>]) of true -> Miss2; false -> [invalid_model_reasoning_effort() | Miss2] end;
+        error -> [missing_model_reasoning_effort() | Miss2]
+    end,
+    Miss4 = case maps:find(model_reasoning_summary, Map) of
+        {ok, V2} -> case enum_member(V2, [<<"auto">>, <<"concise">>, <<"detailed">>, <<"none">>]) of true -> Miss3; false -> [invalid_model_reasoning_summary() | Miss3] end;
+        error -> [missing_model_reasoning_summary() | Miss3]
+    end,
+    Miss5 = case maps:find(approval_policy, Map) of
+        {ok, V3} -> case enum_member(V3, [<<"untrusted">>, <<"on-failure">>, <<"on-request">>, <<"never">>]) of true -> Miss4; false -> [invalid_approval_policy() | Miss4] end;
+        error -> [missing_approval_policy() | Miss4]
+    end,
+    Miss6 = case maps:find(sandbox_policy, Map) of
+        {ok, SP} when is_map(SP) ->
+            case maps:find(mode, SP) of
+                {ok, Mode} -> case enum_member(Mode, [<<"read-only">>, <<"workspace-write">>, <<"danger-full-access">>]) of true -> Miss5; false -> [invalid_sandbox_mode() | Miss5] end;
+                error -> [missing_sandbox_mode() | Miss5]
+            end;
+        {ok, _Other} -> [invalid_sandbox_policy() | Miss5];
+        error -> [missing_sandbox_policy() | Miss5]
+    end,
+    Miss = case ProviderInfo of undefined -> [missing_provider() | Miss6]; _ -> Miss6 end,
+    case Miss of
+        [] -> ok;
+        _ -> erlang:error({bad_configure_session, lists:reverse(Miss)})
+    end.
+
+enum_member(V, Allowed) when is_binary(V) -> lists:member(V, Allowed);
+enum_member(V, Allowed) when is_list(V) -> lists:member(unicode:characters_to_binary(V), Allowed);
+enum_member(_, _) -> false.
+
+missing_model() ->
+    #{field => model, description => <<"Required: model id (e.g., o3, gpt-4o).">>}.
+
+missing_workspace_dir() ->
+    #{field => workspace_dir, description => <<"Required: workspace directory absolute path.">>}.
+
+missing_model_reasoning_effort() ->
+    #{field => model_reasoning_effort, description => <<"Required: reasoning effort level.">>, allowed => [<<"low">>, <<"medium">>, <<"high">>, <<"none">>]}.
+
+invalid_model_reasoning_effort() ->
+    #{field => model_reasoning_effort, description => <<"Invalid: must be one of: low | medium | high | none.">>, allowed => [<<"low">>, <<"medium">>, <<"high">>, <<"none">>]}.
+
+missing_model_reasoning_summary() ->
+    #{field => model_reasoning_summary, description => <<"Required: reasoning summary preference.">>, allowed => [<<"auto">>, <<"concise">>, <<"detailed">>, <<"none">>]}.
+
+invalid_model_reasoning_summary() ->
+    #{field => model_reasoning_summary, description => <<"Invalid: must be one of: auto | concise | detailed | none.">>, allowed => [<<"auto">>, <<"concise">>, <<"detailed">>, <<"none">>]}.
+
+missing_approval_policy() ->
+    #{field => approval_policy, description => <<"Required: approval policy.">>, allowed => [<<"untrusted">>, <<"on-failure">>, <<"on-request">>, <<"never">>]}.
+
+invalid_approval_policy() ->
+    #{field => approval_policy, description => <<"Invalid: must be one of: untrusted | on-failure | on-request | never.">>, allowed => [<<"untrusted">>, <<"on-failure">>, <<"on-request">>, <<"never">>]}.
+
+missing_sandbox_policy() ->
+    #{field => sandbox_policy, description => <<"Required: sandbox policy object with 'mode'.">>}.
+
+invalid_sandbox_policy() ->
+    #{field => sandbox_policy, description => <<"Invalid: must be an object with 'mode'.">>}.
+
+missing_sandbox_mode() ->
+    #{field => sandbox_policy_mode, description => <<"Required: sandbox mode.">>, allowed => [<<"read-only">>, <<"workspace-write">>, <<"danger-full-access">>]}.
+
+invalid_sandbox_mode() ->
+    #{field => sandbox_policy_mode, description => <<"Invalid: must be one of: read-only | workspace-write | danger-full-access.">>, allowed => [<<"read-only">>, <<"workspace-write">>, <<"danger-full-access">>]}.
+
+missing_provider() ->
+    #{field => provider, description => <<"Required: model provider id (e.g., openai, anthropic). Set via open/1 opts or include 'provider' in session options.">>, allowed => [<<"openai">>, <<"anthropic">>, <<"openai-chat-completions">>, <<"azure">>, <<"ollama">>, <<"mistral">>]}.
+
+provider_required_description() ->
+    #{description => <<"Provider is required. Set open/1 option 'provider' or include 'provider' in session options.">>, allowed => [<<"openai">>, <<"anthropic">>, <<"openai-chat-completions">>, <<"azure">>, <<"ollama">>, <<"mistral">>]}.
