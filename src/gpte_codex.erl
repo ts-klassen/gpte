@@ -311,8 +311,8 @@ provider_info(Provider, _C) ->
     case P of
         undefined -> undefined;
         _ ->
-            %% Minimal struct: refer to a known provider by id; let CLI read env from process/session config
-            #{id => P}
+            %% Minimal struct: refer to a known provider by name; let CLI read env from process/session config
+            #{name => P}
     end.
 
 %% Validate ConfigureSession payload has all required fields with valid values.
@@ -388,7 +388,7 @@ invalid_sandbox_mode() ->
     #{field => sandbox_policy_mode, description => <<"Invalid: must be one of: read-only | workspace-write | danger-full-access.">>, allowed => [<<"read-only">>, <<"workspace-write">>, <<"danger-full-access">>]}.
 
 missing_provider() ->
-    #{field => provider, description => <<"Required: model provider id (e.g., openai, anthropic). Set via open/1 opts or include 'provider' in session options.">>, allowed => [<<"openai">>, <<"anthropic">>, <<"openai-chat-completions">>, <<"azure">>, <<"ollama">>, <<"mistral">>]}.
+    #{field => provider, description => <<"Required: model provider name (e.g., openai, anthropic). Set via open/1 opts or include 'provider' in session options.">>, allowed => [<<"openai">>, <<"anthropic">>, <<"openai-chat-completions">>, <<"azure">>, <<"ollama">>, <<"mistral">>]}.
 
 provider_required_description() ->
     #{description => <<"Provider is required. Set open/1 option 'provider' or include 'provider' in session options.">>, allowed => [<<"openai">>, <<"anthropic">>, <<"openai-chat-completions">>, <<"azure">>, <<"ollama">>, <<"mistral">>]}.
