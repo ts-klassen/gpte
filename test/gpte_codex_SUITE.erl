@@ -49,19 +49,23 @@ end_per_testcase(_TC, _Cfg) ->
 
 smoke_open_close(Cfg) ->
     Prog = get_prog(Cfg),
-    Opt = #{program => Prog},
+    Args = get_args(),
+    Env = get_env(),
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown},
     C = gpte_codex:open(Opt),
     ok = gpte_codex:close(C).
 
 session_user_input_flow(Cfg) ->
     Prog = get_prog(Cfg),
     Ws = get_ws(Cfg),
-    Opt = #{program => Prog},
+    Args = get_args(),
+    Env = get_env(),
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown},
     C0 = gpte_codex:open(Opt),
     Sess = #{model => <<"gpt-5-nano">>, workspace_dir => Ws, env => #{}, protocol_version => 1},
     ok = gpte_codex:configure_session(Sess, C0),
     ok = gpte_codex:user_input(<<"ct-1">>, <<"Hello from CT">>, C0),
-    {Events, C1} = gpte_codex:recv_events(30000, C0),
+    {Events, C1} = gpte_codex:recv_events(120000, C0),
     case is_list(Events) of
         true -> ok;
         false -> ct:fail({not_a_list, Events})
@@ -92,6 +96,35 @@ get_ws(Cfg) ->
             end;
         Ws -> unicode:characters_to_binary(Ws)
     end.
+
+get_args() ->
+    %% Optional CT config key 'codex_args' may be a list of strings/binaries.
+    %% Default to ["proto"].
+    case ct:get_config(codex_args, ["proto"]) of
+        L when is_list(L) -> [unicode:characters_to_binary(A) || A <- L];
+        Other -> [unicode:characters_to_binary(Other)]
+    end.
+
+get_env() ->
+    %% Collect select env vars from ct config or OS env.
+    %% You can pass these in ct config as a map under 'codex_env'.
+    case ct:get_config(codex_env, undefined) of
+        M when is_map(M) -> normalize_env_map(M);
+        _ ->
+            Env0 = lists:filtermap(fun(K) ->
+                case os:getenv(K) of
+                    false -> false;
+                    V -> {true, {K, V}}
+                end
+            end, ["OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"]),
+            maps:from_list([{unicode:characters_to_binary(K), unicode:characters_to_binary(V)} || {K, V} <- Env0])
+    end.
+
+normalize_env_map(M) ->
+    maps:from_list([
+        {unicode:characters_to_binary(K), unicode:characters_to_binary(V)}
+        || {K, V} <- maps:to_list(M)
+    ]).
 
 find_codex_program() ->
     %% Order of precedence:
