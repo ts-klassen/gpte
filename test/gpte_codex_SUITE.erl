@@ -2,6 +2,8 @@
 
 -include_lib("common_test/include/ct.hrl").
 
+% TODO: test exec_approval and interrupt
+
 -export([
         suite/0
       , all/0
@@ -12,13 +14,14 @@
       , smoke_open_close/1
       , session_user_input_flow/1
       , say_this_is_a_test/1
+      , file_io_create_hello_md/1
     ]).
 
 suite() ->
     [{timetrap, {minutes, 5}}].
 
 all() ->
-    [smoke_open_close, session_user_input_flow, say_this_is_a_test].
+    [smoke_open_close, session_user_input_flow, say_this_is_a_test, file_io_create_hello_md].
 
 init_per_suite(Cfg) ->
     case find_codex_program() of
@@ -126,6 +129,52 @@ say_this_is_a_test(Cfg) ->
             ct:fail(no_phrase_found)
     end.
 
+file_io_create_hello_md(Cfg) ->
+    Prog = get_prog(Cfg),
+    Ws = get_ws(Cfg),
+    Args = get_args(),
+    Env = get_env(),
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws, provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> }},
+    C0 = gpte_codex:open(Opt),
+    Sess = #{
+        model => <<"gpt-5-nano">>,
+        workspace_dir => Ws,
+        cwd => Ws,
+        env => #{},
+        protocol_version => 1,
+        model_reasoning_effort => <<"medium">>,
+        model_reasoning_summary => <<"none">>,
+        %% Avoid interactive approvals to keep the test deterministic
+        approval_policy => <<"never">>,
+        sandbox_policy => #{mode => <<"danger-full-access">>}
+    },
+    ok = gpte_codex:configure_session(Sess, C0),
+    %% Prompt to create the file with content
+    ok = gpte_codex:user_input(<<"ct-file-io">>, <<"Create hello.md with hello world">>, C0),
+    %% Wait for the task_complete event
+    case gpte_codex:await_event(task_complete, 120000, C0) of
+        {ok, _Ev, C1} ->
+            WsList = unicode:characters_to_list(Ws),
+            Path = filename:join(WsList, "hello.md"),
+            case file:read_file(Path) of
+                {ok, Bin} ->
+                    %% Accept: "hello world", "hello world!", and "hello, world!" (ignore case)
+                    Patt = <<"hello\\s*,?\\s*world!?">>,
+                    case re:run(Bin, Patt, [caseless]) of
+                        {match, _} -> ok = gpte_codex:close(C1);
+                        nomatch ->
+                            ok = gpte_codex:close(C1),
+                            ct:fail({hello_world_not_found, Bin})
+                    end;
+                {error, Reason} ->
+                    ok = gpte_codex:close(C1),
+                    ct:fail({file_not_found_or_unreadable, Path, Reason})
+            end;
+        {error, timeout, C1} ->
+            ok = gpte_codex:close(C1),
+            ct:fail(task_did_not_complete)
+    end.
+
 %% Helpers ----------------------------------------------------------------
 
 get_prog(Cfg) ->
@@ -197,7 +246,7 @@ ensure_dir(Dir) ->
         false -> filelib:ensure_dir(filename:join(Dir, ".keep")), file:make_dir(Dir), ok
     end.
 
-maybe_skip_network(TC, Cfg) when TC =:= session_user_input_flow; TC =:= say_this_is_a_test ->
+maybe_skip_network(TC, Cfg) when TC =:= session_user_input_flow; TC =:= say_this_is_a_test; TC =:= file_io_create_hello_md ->
     case has_api_creds() of
         true -> Cfg;
         false -> {skip, "Missing API key (set OPENAI_API_KEY or ANTHROPIC_API_KEY)"}
