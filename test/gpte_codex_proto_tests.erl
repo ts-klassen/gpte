@@ -97,6 +97,45 @@ decode_line_task_started_payload_bad_type_test() ->
     {ok, Ev} = gpte_codex_proto:decode_line(Line),
     ?assertEqual(unknown, maps:get(type, Ev)).
 
+%% Additional coverage for alternate shapes and wrappers -----------------
+
+decode_line_agent_message_top_level_test() ->
+    %% Accept top-level message without payload
+    Line = <<"{\"type\":\"agent_message\",\"message\":\"hi\"}">>,
+    {ok, Ev} = gpte_codex_proto:decode_line(Line),
+    ?assertEqual(agent_message, maps:get(type, Ev)),
+    #{payload := P} = Ev,
+    ?assertEqual(<<"hi">>, maps:get(message, P)).
+
+decode_line_agent_message_missing_message_test() ->
+    %% Missing message field should downgrade to unknown
+    Line = <<"{\"type\":\"agent_message\",\"payload\":{}}">>,
+    {ok, Ev} = gpte_codex_proto:decode_line(Line),
+    ?assertEqual(unknown, maps:get(type, Ev)).
+
+decode_line_task_complete_top_level_fields_test() ->
+    %% Accept task_complete with fields at top level (no payload)
+    Line = <<"{\"type\":\"task_complete\",\"last_agent_message\":\"done\"}">>,
+    {ok, Ev} = gpte_codex_proto:decode_line(Line),
+    ?assertEqual(task_complete, maps:get(type, Ev)),
+    #{payload := P} = Ev,
+    ?assertEqual(<<"done">>, maps:get(<<"last_agent_message">>, P)).
+
+decode_line_task_started_no_subid_no_payload_test() ->
+    %% Accept task_started without sub_id and payload
+    Line = <<"{\"type\":\"task_started\"}">>,
+    {ok, Ev} = gpte_codex_proto:decode_line(Line),
+    ?assertEqual(task_started, maps:get(type, Ev)),
+    ?assert(maps:is_key(payload, Ev)).
+
+decode_line_wrapped_msg_unwraps_test() ->
+    %% Unwrap {id, msg:{...}} envelope
+    Line = <<"{\"id\":\"1\",\"msg\":{\"type\":\"agent_message\",\"payload\":{\"message\":\"hello\"}}}">>,
+    {ok, Ev} = gpte_codex_proto:decode_line(Line),
+    ?assertEqual(agent_message, maps:get(type, Ev)),
+    #{payload := P} = Ev,
+    ?assertEqual(<<"hello">>, maps:get(message, P)).
+
 decode_line_exec_start_payload_map_test() ->
     Line = <<"{\"type\":\"exec_start\",\"sub_id\":\"es1\",\"payload\":{\"v\":1}}">>,
     {ok, Ev} = gpte_codex_proto:decode_line(Line),

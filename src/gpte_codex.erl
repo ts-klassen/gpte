@@ -16,6 +16,7 @@
       , interrupt/1
       , recv_events/2
       , handle_port_data/2
+      , await_event/3
     ]).
 
 -export_type([
@@ -117,7 +118,7 @@ buffer(C) ->
 -spec send_op(gpte_codex_proto:op(), codex()) -> ok.
 send_op(Op, C) ->
     Port = port(C),
-    Frame = gpte_codex_proto:encode_frame(Op),
+    Frame = encode_outgoing(Op),
     case erlang:port_command(Port, Frame) of
         true -> ok;
         false -> erlang:error({port_command_failed, Frame})
@@ -167,10 +168,33 @@ recv_events(Timeout, C0) ->
 
 %% Feed a chunk of bytes from the port into the decoder.
 %% Useful for integrating with a caller-owned receive loop.
--spec handle_port_data(binary(), codex()) -> {[gpte_codex_proto:event()], codex()}.
+  -spec handle_port_data(binary(), codex()) -> {[gpte_codex_proto:event()], codex()}.
 handle_port_data(Bin, C0) when is_binary(Bin) ->
     OnInvalid = maps:get(on_invalid, opts(C0), drop),
     do_handle_data(Bin, OnInvalid, C0).
+
+%% Convenience: Block until an agent_message is received and return its text.
+%% Also supports providers that stream deltas followed by a final message,
+%% or that emit the final text inside task_complete payloads.
+%% Returns the message text when found, or {error, timeout, C} on timeout.
+-spec await_event(gpte_codex_proto:event_type(), infinity | non_neg_integer(), codex()) ->
+          {ok, gpte_codex_proto:event(), codex()} | {error, timeout, codex()}.
+await_event(Type, Timeout, C0) when is_atom(Type) ->
+    Deadline = case Timeout of infinity -> infinity; T when is_integer(T), T >= 0 -> erlang:monotonic_time(millisecond) + T end,
+    await_event_loop(Type, Deadline, C0).
+
+await_event_loop(Type, Deadline, C0) ->
+    Remain = case Deadline of infinity -> 30000; _ -> Deadline - erlang:monotonic_time(millisecond) end,
+    case Remain =:= infinity orelse Remain > 0 of
+        false -> {error, timeout, C0};
+        true ->
+            Chunk = case Deadline of infinity -> 30000; _ -> case Remain > 30000 of true -> 30000; false -> Remain end end,
+            {Events, C1} = recv_events(Chunk, C0),
+            case lists:filter(fun(E) -> maps:get(type, E) =:= Type end, Events) of
+                [Ev | _] -> {ok, Ev, C1};
+                [] -> await_event_loop(Type, Deadline, C1)
+            end
+    end.
 
 %% Internal ---------------------------------------------------------------
 
@@ -203,3 +227,29 @@ recv_drain(Port, OnInvalid, C0, EvAccRev) ->
     after 0 ->
         {lists:reverse(EvAccRev), C0}
     end.
+
+encode_outgoing(Op) when is_map(Op) ->
+    %% Codex CLI expects submissions as: { id, op: { type, ... } }
+    OpInner = case maps:find(op, Op) of
+        {ok, Type} ->
+            Data0 = maps:remove(op, Op),
+            Data1 = transform_op(Type, Data0),
+            Data1#{type => Type};
+        error -> Op
+    end,
+    IdBin = integer_to_binary(erlang:unique_integer([monotonic, positive])),
+    Top = #{id => IdBin, op => OpInner},
+    gpte_codex_proto:frame(gpte_codex_proto:encode_op(Top)).
+
+transform_op(configure_session, Data0 = #{session := _Sess0}) ->
+    %% Do not inject provider; rely on Codex defaults to restore prior working state.
+    Data0;
+transform_op(user_input, Data0) ->
+    case maps:find(input, Data0) of
+        {ok, Input} ->
+            Items = [#{type => text, text => Input}],
+            (maps:remove(input, Data0))#{items => Items};
+        error -> Data0
+    end;
+transform_op(_, Data) ->
+    Data.

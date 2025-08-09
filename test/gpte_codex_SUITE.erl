@@ -11,13 +11,14 @@
       , end_per_testcase/2
       , smoke_open_close/1
       , session_user_input_flow/1
+      , say_this_is_a_test/1
     ]).
 
 suite() ->
     [{timetrap, {minutes, 5}}].
 
 all() ->
-    [smoke_open_close, session_user_input_flow].
+    [smoke_open_close, session_user_input_flow, say_this_is_a_test].
 
 init_per_suite(Cfg) ->
     case find_codex_program() of
@@ -49,9 +50,10 @@ end_per_testcase(_TC, _Cfg) ->
 
 smoke_open_close(Cfg) ->
     Prog = get_prog(Cfg),
+    Ws = get_ws(Cfg),
     Args = get_args(),
     Env = get_env(),
-    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown},
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws},
     C = gpte_codex:open(Opt),
     ok = gpte_codex:close(C).
 
@@ -60,9 +62,9 @@ session_user_input_flow(Cfg) ->
     Ws = get_ws(Cfg),
     Args = get_args(),
     Env = get_env(),
-    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown},
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws},
     C0 = gpte_codex:open(Opt),
-    Sess = #{model => <<"gpt-5-nano">>, workspace_dir => Ws, env => #{}, protocol_version => 1},
+    Sess = #{model => <<"gpt-5-nano">>, workspace_dir => Ws, cwd => Ws, env => #{}, protocol_version => 1},
     ok = gpte_codex:configure_session(Sess, C0),
     ok = gpte_codex:user_input(<<"ct-1">>, <<"Hello from CT">>, C0),
     {Events, C1} = gpte_codex:recv_events(120000, C0),
@@ -77,6 +79,31 @@ session_user_input_flow(Cfg) ->
     Types = [maps:get(type, E) || E <- Events],
     ct:pal("received event types: ~p", [Types]),
     ok = gpte_codex:close(C1).
+
+say_this_is_a_test(Cfg) ->
+    Prog = get_prog(Cfg),
+    Ws = get_ws(Cfg),
+    Args = get_args(),
+    Env = get_env(),
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws},
+    C0 = gpte_codex:open(Opt),
+    Sess = #{model => <<"gpt-5-nano">>, workspace_dir => Ws, cwd => Ws, env => #{}, protocol_version => 1},
+    ok = gpte_codex:configure_session(Sess, C0),
+    %% Standard API test prompt
+    ok = gpte_codex:user_input(<<"ct-2">>, <<"Say this is a test">>, C0),
+    Pattern = <<"this\\s+is\\s+a\\s+test!?">>,
+    case gpte_codex:await_event(agent_message, 120000, C0) of
+        {ok, Ev, C1} ->
+            Msg = maps:get(message, maps:get(payload, Ev, #{}), <<>>),
+            case re:run(Msg, Pattern, [caseless, dotall, multiline]) of
+                {match, _} -> ok = gpte_codex:close(C1);
+                nomatch -> ct:fail({no_phrase_found, Msg})
+            end;
+        {error, timeout, C1} ->
+            %% Timeout; close and fail
+            ok = gpte_codex:close(C1),
+            ct:fail(no_phrase_found)
+    end.
 
 %% Helpers ----------------------------------------------------------------
 
@@ -98,12 +125,8 @@ get_ws(Cfg) ->
     end.
 
 get_args() ->
-    %% Optional CT config key 'codex_args' may be a list of strings/binaries.
-    %% Default to ["proto"].
-    case ct:get_config(codex_args, ["proto"]) of
-        L when is_list(L) -> [unicode:characters_to_binary(A) || A <- L];
-        Other -> [unicode:characters_to_binary(Other)]
-    end.
+    %% Only 'proto' is needed per CLI guidance.
+    [<<"proto">>].
 
 get_env() ->
     %% Collect select env vars from ct config or OS env.
@@ -125,6 +148,8 @@ normalize_env_map(M) ->
         {unicode:characters_to_binary(K), unicode:characters_to_binary(V)}
         || {K, V} <- maps:to_list(M)
     ]).
+
+%% No internal await/matching helpers; rely on gpte_codex:await_agent_message/2
 
 find_codex_program() ->
     %% Order of precedence:

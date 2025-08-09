@@ -244,7 +244,12 @@ decode_chunk(Buf, Data, Opts) ->
 decode_line(Line) ->
     try jsone:decode(Line) of
         Map when is_map(Map) ->
-            decode_event_map(Map);
+            %% Some Codex CLIs wrap events as {id, msg:{...}}; unwrap when present.
+            Map1 = case maps:get(<<"msg">>, Map, undefined) of
+                Msg when is_map(Msg) -> Msg;
+                _ -> Map
+            end,
+            decode_event_map(Map1);
         Other ->
             {ok, unknown_from(undefined, Other)}
     catch
@@ -299,6 +304,22 @@ decode_event_map(Map = #{<<"type">> := <<"task_started">>, <<"sub_id">> := SubId
         null -> {ok, #{type => task_started, sub_id => SubId, payload => null}};
         _ -> {ok, unknown_from(SubId, Map)}
     end;
+%% Some CLI variants omit sub_id/payload for task_started; normalize, but keep type safety
+decode_event_map(Map = #{<<"type">> := <<"task_started">>}) ->
+    Sub0 = maps:get(<<"sub_id">>, Map, undefined),
+    SubOk = (Sub0 =:= undefined) orelse is_binary(Sub0),
+    case {SubOk, maps:find(<<"payload">>, Map)} of
+        {true, error} ->
+            Ev0 = #{type => task_started, payload => #{}},
+            {ok, add_sub(Ev0, Sub0)};
+        {true, {ok, null}} ->
+            Ev0 = #{type => task_started, payload => null},
+            {ok, add_sub(Ev0, Sub0)};
+        {true, {ok, P}} when is_map(P) ->
+            Ev0 = #{type => task_started, payload => P},
+            {ok, add_sub(Ev0, Sub0)};
+        _ -> {ok, unknown_from(Sub0, Map)}
+    end;
 
 decode_event_map(Map = #{<<"type">> := <<"agent_message">>, <<"sub_id">> := SubId, <<"payload">> := Payload}) when is_binary(SubId), is_map(Payload) ->
     case Payload of
@@ -306,6 +327,23 @@ decode_event_map(Map = #{<<"type">> := <<"agent_message">>, <<"sub_id">> := SubI
             {ok, #{type => agent_message, sub_id => SubId, payload => #{message => Msg}}};
         _ ->
             {ok, unknown_from(SubId, Map)}
+    end;
+%% Accept alternate shapes for agent_message without payload or sub_id
+decode_event_map(Map = #{<<"type">> := <<"agent_message">>}) ->
+    SubId = maps:get(<<"sub_id">>, Map, undefined),
+    Msg0 = case maps:get(<<"payload">>, Map, undefined) of
+        P when is_map(P) -> maps:get(<<"message">>, P, undefined);
+        _ -> undefined
+    end,
+    Msg = case maps:get(<<"message">>, Map, undefined) of
+        M1 when is_binary(M1) -> M1;
+        _ -> Msg0
+    end,
+    case Msg of
+        M2 when is_binary(M2) ->
+            Ev0 = #{type => agent_message, payload => #{message => M2}},
+            {ok, add_sub(Ev0, SubId)};
+        _ -> {ok, unknown_from(SubId, Map)}
     end;
 
 decode_event_map(Map = #{<<"type">> := <<"exec_approval_request">>, <<"sub_id">> := SubId, <<"payload">> := Payload}) when is_binary(SubId), is_map(Payload) ->
@@ -373,6 +411,22 @@ decode_event_map(Map = #{<<"type">> := <<"task_complete">>, <<"sub_id">> := SubI
         null -> {ok, #{type => task_complete, sub_id => SubId, payload => null}};
         _ -> {ok, unknown_from(SubId, Map)}
     end;
+%% Accept alternate shape for task_complete with fields at top level
+decode_event_map(Map = #{<<"type">> := <<"task_complete">>}) ->
+    SubId = maps:get(<<"sub_id">>, Map, undefined),
+    Payload0 = case maps:find(<<"payload">>, Map) of
+        {ok, P0} -> P0;
+        error -> maps:without([<<"type">>, <<"sub_id">>], Map)
+    end,
+    case Payload0 of
+        P1 when is_map(P1) ->
+            Ev0 = #{type => task_complete, payload => P1},
+            {ok, add_sub(Ev0, SubId)};
+        null ->
+            Ev0 = #{type => task_complete, payload => null},
+            {ok, add_sub(Ev0, SubId)};
+        _ -> {ok, unknown_from(SubId, Map)}
+    end;
 
 decode_event_map(Map = #{<<"type">> := <<"task_completed">>, <<"sub_id">> := SubId}) when is_binary(SubId) ->
     Payload0 = maps:get(<<"payload">>, Map, #{}),
@@ -399,6 +453,9 @@ decode_event_map(Map) when is_map(Map) ->
 unknown_from(undefined, Raw) -> #{type => unknown, payload => #{raw => Raw}};
 unknown_from(SubId, Raw) when is_binary(SubId) -> #{type => unknown, sub_id => SubId, payload => #{raw => Raw}};
 unknown_from(_, Raw) -> #{type => unknown, payload => #{raw => Raw}}.
+
+add_sub(Ev, SubId) when is_binary(SubId) -> Ev#{sub_id => SubId};
+add_sub(Ev, _) -> Ev.
 
 env_kv_binaries(Map) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) ->
