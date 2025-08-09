@@ -54,7 +54,7 @@ smoke_open_close(Cfg) ->
     Ws = get_ws(Cfg),
     Args = get_args(),
     Env = get_env(),
-    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws, provider => <<"openai">>},
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws, provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> }},
     C = gpte_codex:open(Opt),
     ok = gpte_codex:close(C).
 
@@ -63,7 +63,7 @@ session_user_input_flow(Cfg) ->
     Ws = get_ws(Cfg),
     Args = get_args(),
     Env = get_env(),
-    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws, provider => <<"openai">>},
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws, provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> }},
     C0 = gpte_codex:open(Opt),
     Sess = #{
         model => <<"gpt-5-nano">>,
@@ -96,7 +96,7 @@ say_this_is_a_test(Cfg) ->
     Ws = get_ws(Cfg),
     Args = get_args(),
     Env = get_env(),
-    Opt = #{program => Prog, args => Args, on_invalid => unknown, cwd => Ws, provider => <<"openai">>},
+    Opt = #{program => Prog, args => Args, on_invalid => unknown, cwd => Ws, provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> }},
     C0 = gpte_codex:open(Opt),
     Sess = #{
         model => <<"gpt-5-nano">>,

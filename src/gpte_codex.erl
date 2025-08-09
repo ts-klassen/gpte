@@ -22,6 +22,7 @@
 -export_type([
         opt/0
       , codex/0
+      , provider_info/0
     ]).
 
 %% Types -----------------------------------------------------------------
@@ -33,13 +34,20 @@
 %% - args: Additional args; the implementation will ensure proto mode
 %% - cwd: Working directory for the port process
 %% - env: Extra environment variables for the port process
+%% - provider: Binary name (e.g., <<"OpenAI">>) or provider object (e.g., #{name => <<"OpenAI">>, wire_api => <<"responses">>})
 %% - on_invalid: How to treat invalid JSON lines from Codex
+%% Provider information passed to Codex CLI
+-type provider_info() :: #{
+        name := unicode:unicode_binary()
+      , wire_api => unicode:unicode_binary()
+    }.
+
 -type opt() :: #{
         program := unicode:unicode_binary()
       , args => [unicode:unicode_binary()]
       , cwd => unicode:unicode_binary()
       , env => gpte_codex_proto:env()
-      , provider => unicode:unicode_binary()
+      , provider => unicode:unicode_binary() | provider_info()
       , on_invalid => drop | unknown
     }.
 
@@ -120,6 +128,7 @@ buffer(C) ->
 send_op(Op, C) ->
     Port = port(C),
     Frame = encode_outgoing(Op, C),
+    io:format("~ts~n", [Frame]),
     case erlang:port_command(Port, Frame) of
         true -> ok;
         false -> erlang:error({port_command_failed, Frame})
@@ -231,25 +240,25 @@ recv_drain(Port, OnInvalid, C0, EvAccRev) ->
 
 encode_outgoing(Op, C) when is_map(Op) ->
     %% Codex CLI expects submissions as: { id, op: { type, ... } }
-    %% Determine provider from Op/session, opts, or env heuristics.
-    Provider0 = choose_provider(Op, C),
+    %% Determine provider from Op/session, opts (none | {value, ProviderMap})
+    Provider0 = choose_provider_maybe(Op, C),
     OpInner = case maps:find(op, Op) of
         {ok, Type} ->
             Data0 = maps:remove(op, Op),
             Data1 = transform_op(Type, Data0),
-            %% Build provider info object
-            PInfo = provider_info(Provider0, C),
+            %% Provider info already normalized in choose_provider_maybe/2
+            PInfo = Provider0,
             case Type of
                 configure_session -> ok = validate_configure_session(Data1, PInfo);
                 _ -> ok
             end,
             case {Type, PInfo} of
-                {configure_session, undefined} -> erlang:error({badarg, provider_missing, provider_required_description()});
+                {configure_session, none} -> erlang:error({badarg, provider_missing, provider_required_description()});
                 _ -> ok
             end,
             case PInfo of
-                undefined -> Data1#{type => Type};
-                _ -> Data1#{type => Type, provider => PInfo}
+                none -> Data1#{type => Type};
+                {value, PMap} -> Data1#{type => Type, provider => PMap}
             end;
         error -> Op
     end,
@@ -275,45 +284,42 @@ transform_op(user_input, Data0) ->
 transform_op(_, Data) ->
     Data.
 
-choose_provider(Op, C) ->
+choose_provider_maybe(Op, C) ->
     %% Priority (explicit only; no heuristics):
-    %% 1) Op top-level 'provider'
-    %% 2) Op.session 'provider'
+    %% 1) Op.top-level 'provider'
+    %% 2) Op.session.provider
     %% 3) C.opts 'provider'
-    case maps:get(provider, Op, undefined) of
-        P when is_binary(P); is_list(P); is_atom(P) -> normalize_provider(P);
-        _ ->
-            SessP = case maps:get(session, Op, undefined) of
-                S when is_map(S) -> maps:get(provider, S, undefined);
-                _ -> undefined
-            end,
-            case SessP of
-                P2 when is_binary(P2); is_list(P2); is_atom(P2) -> normalize_provider(P2);
-                _ ->
+    case klsn_map:lookup([provider], Op) of
+        {value, PMap} when is_map(PMap) -> ensure_provider_map(PMap);
+        {value, P} -> {value, #{name => klsn_binstr:from_any(P)}};
+        none ->
+            case klsn_map:lookup([session, provider], Op) of
+                {value, PM} when is_map(PM) -> ensure_provider_map(PM);
+                {value, P2} -> {value, #{name => klsn_binstr:from_any(P2)}};
+                none ->
                     Opts = opts(C),
-                    case maps:get(provider, Opts, undefined) of
-                        P3 when is_binary(P3); is_list(P3); is_atom(P3) -> normalize_provider(P3);
-                        _ -> undefined
+                    case klsn_map:lookup([provider], Opts) of
+                        {value, PM3} when is_map(PM3) -> ensure_provider_map(PM3);
+                        {value, P3} -> {value, #{name => klsn_binstr:from_any(P3)}};
+                        none -> none
                     end
             end
     end.
 
-normalize_provider(P) when is_binary(P) -> P;
-normalize_provider(P) when is_list(P) -> unicode:characters_to_binary(P);
-normalize_provider(P) when is_atom(P) -> normalize_provider(atom_to_list(P));
-normalize_provider(_) -> undefined.
-
-%% Heuristic helpers removed to avoid implicit defaults
-
-provider_info(undefined, _C) -> undefined;
-provider_info(Provider, _C) ->
-    P = normalize_provider(Provider),
-    case P of
-        undefined -> undefined;
-        _ ->
-            %% Minimal struct: refer to a known provider by name; let CLI read env from process/session config
-            #{name => P}
+ensure_provider_map(Map) when is_map(Map) ->
+    NameMaybe = case klsn_map:lookup([name], Map) of
+        none -> klsn_map:lookup([<<"name">>], Map);
+        MV -> MV
+    end,
+    case NameMaybe of
+        none -> erlang:error({badarg, invalid_provider_map_missing_name});
+        {value, _} -> {value, Map}
     end.
+
+
+
+
+
 
 %% Validate ConfigureSession payload has all required fields with valid values.
 validate_configure_session(Map, ProviderInfo) when is_map(Map) ->
@@ -341,7 +347,7 @@ validate_configure_session(Map, ProviderInfo) when is_map(Map) ->
         {ok, _Other} -> [invalid_sandbox_policy() | Miss5];
         error -> [missing_sandbox_policy() | Miss5]
     end,
-    Miss = case ProviderInfo of undefined -> [missing_provider() | Miss6]; _ -> Miss6 end,
+    Miss = case ProviderInfo of none -> [missing_provider() | Miss6]; {value, _} -> Miss6 end,
     case Miss of
         [] -> ok;
         _ -> erlang:error({bad_configure_session, lists:reverse(Miss)})
