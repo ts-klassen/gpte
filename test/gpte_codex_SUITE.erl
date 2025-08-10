@@ -2,8 +2,6 @@
 
 -include_lib("common_test/include/ct.hrl").
 
-% TODO: test exec_approval and interrupt
-
 -export([
         suite/0
       , all/0
@@ -15,13 +13,20 @@
       , session_user_input_flow/1
       , say_this_is_a_test/1
       , file_io_create_hello_md/1
+      , approval_and_interrupt_flow/1
     ]).
 
 suite() ->
     [{timetrap, {minutes, 5}}].
 
 all() ->
-    [smoke_open_close, session_user_input_flow, say_this_is_a_test, file_io_create_hello_md].
+    [
+        smoke_open_close
+      , session_user_input_flow
+      , say_this_is_a_test
+      , file_io_create_hello_md
+      % approval_and_interrupt_flow
+    ].
 
 init_per_suite(Cfg) ->
     case find_codex_program() of
@@ -57,7 +62,7 @@ smoke_open_close(Cfg) ->
     Ws = get_ws(Cfg),
     Args = get_args(),
     Env = get_env(),
-    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws, provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> }},
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws},
     C = gpte_codex:open(Opt),
     ok = gpte_codex:close(C).
 
@@ -66,7 +71,7 @@ session_user_input_flow(Cfg) ->
     Ws = get_ws(Cfg),
     Args = get_args(),
     Env = get_env(),
-    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws, provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> }},
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws},
     C0 = gpte_codex:open(Opt),
     Sess = #{
         model => <<"gpt-5-nano">>,
@@ -74,6 +79,7 @@ session_user_input_flow(Cfg) ->
         cwd => Ws,
         env => #{},
         protocol_version => 1,
+        provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> },
         model_reasoning_effort => <<"medium">>,
         model_reasoning_summary => <<"none">>,
         approval_policy => <<"on-request">>,
@@ -98,8 +104,8 @@ say_this_is_a_test(Cfg) ->
     Prog = get_prog(Cfg),
     Ws = get_ws(Cfg),
     Args = get_args(),
-    Env = get_env(),
-    Opt = #{program => Prog, args => Args, on_invalid => unknown, cwd => Ws, provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> }},
+    _Env = get_env(),
+    Opt = #{program => Prog, args => Args, on_invalid => unknown, cwd => Ws},
     C0 = gpte_codex:open(Opt),
     Sess = #{
         model => <<"gpt-5-nano">>,
@@ -107,6 +113,7 @@ say_this_is_a_test(Cfg) ->
         cwd => Ws,
         env => #{},
         protocol_version => 1,
+        provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> },
         model_reasoning_effort => <<"medium">>,
         model_reasoning_summary => <<"none">>,
         approval_policy => <<"on-request">>,
@@ -134,7 +141,7 @@ file_io_create_hello_md(Cfg) ->
     Ws = get_ws(Cfg),
     Args = get_args(),
     Env = get_env(),
-    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws, provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> }},
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws},
     C0 = gpte_codex:open(Opt),
     Sess = #{
         model => <<"gpt-5-nano">>,
@@ -142,6 +149,7 @@ file_io_create_hello_md(Cfg) ->
         cwd => Ws,
         env => #{},
         protocol_version => 1,
+        provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> },
         model_reasoning_effort => <<"medium">>,
         model_reasoning_summary => <<"none">>,
         %% Avoid interactive approvals to keep the test deterministic
@@ -174,6 +182,99 @@ file_io_create_hello_md(Cfg) ->
             ok = gpte_codex:close(C1),
             ct:fail(task_did_not_complete)
     end.
+
+%% Exercise exec_approval (deny/allow) and interrupt using the real CLI.
+approval_and_interrupt_flow(Cfg) ->
+    Prog = get_prog(Cfg),
+    Ws = get_ws(Cfg),
+    Args = get_args(),
+    Env = get_env(),
+    Opt = #{program => Prog, args => Args, env => Env, on_invalid => unknown, cwd => Ws},
+    C0 = gpte_codex:open(Opt),
+    Sess = #{
+        model => <<"gpt-5-nano">>,
+        workspace_dir => Ws,
+        cwd => Ws,
+        env => #{},
+        protocol_version => 1,
+        provider => #{ name => <<"OpenAI">>, wire_api => <<"responses">> },
+        model_reasoning_effort => <<"medium">>,
+        model_reasoning_summary => <<"none">>,
+        approval_policy => <<"untrusted">>,
+        sandbox_policy => #{mode => <<"danger-full-access">>}
+    },
+    ok = gpte_codex:configure_session(Sess, C0),
+    %% Precompute workspace paths; perform all file checks at the end
+    WsList = unicode:characters_to_list(Ws),
+    RejectFile = "reject_marker.txt",
+    ApproveFile = "approve_marker.txt",
+    InterruptFile = "interrupt_marker.txt",
+    RejectPath = filename:join(WsList, RejectFile),
+    ApprovePath = filename:join(WsList, ApproveFile),
+    InterruptPath = filename:join(WsList, InterruptFile),
+
+    %% 1) DENY: propose a one-line Erlang file write; deny approval
+    RejectCmd = <<"erl -noshell -eval 'file:write_file(\"reject_marker.txt\",<<\"rejected\">>), halt().' -s init stop">>,
+    ok = gpte_codex:user_input(<<"ct-approval-1">>, <<"Execute this exact command now: ", RejectCmd/binary>>, C0),
+    C1 = case gpte_codex:await_event(exec_approval_request, 120000, C0) of
+        {ok, EvReq1, C} ->
+            Payload1 = maps:get(payload, EvReq1, #{}),
+            CallId1 = maps:get(call_id, Payload1, <<"call-unknown">>),
+            ok = gpte_codex:exec_approval(<<"ct-approval-1">>, CallId1, denied, C),
+            C;
+        {error, timeout, C} -> ok = gpte_codex:close(C), ct:fail(exec_approval_request_timeout_reject)
+    end,
+
+    %% 2) ALLOW: propose second Erlang file write; approve and wait finish
+    ApproveCmd = <<"erl -noshell -eval 'file:write_file(\"approve_marker.txt\",<<\"approved\">>), halt().' -s init stop">>,
+    ok = gpte_codex:user_input(<<"ct-approval-2">>, <<"Execute this exact command now: ", ApproveCmd/binary>>, C1),
+
+% FIXME: Not sure why but not receiving anything.
+F = fun Self(Y) -> receive X -> Self([X|Y]) after 10000 -> Y end end, ct:print(io_lib:format("~p", [F([])])),
+
+    C4 = case gpte_codex:await_event(exec_approval_request, 120000, C1) of
+        {ok, EvReq2, C2} ->
+            Payload2 = maps:get(payload, EvReq2, #{}),
+            CallId2 = maps:get(call_id, Payload2, <<"call-unknown">>),
+            ok = gpte_codex:exec_approval(<<"ct-approval-2">>, CallId2, approved, C2),
+            case gpte_codex:await_event(exec_start, 120000, C2) of
+                {ok, _EvStart2, C3} ->
+                    case gpte_codex:await_event(exec_stop, 120000, C3) of
+                        {ok, _EvStop2, C4a} -> C4a;
+                        {error, timeout, C3b} -> ok = gpte_codex:close(C3b), ct:fail(exec_stop_timeout_approved)
+                    end;
+                {error, timeout, C2b} -> ok = gpte_codex:close(C2b), ct:fail(exec_start_timeout_approved)
+            end;
+        {error, timeout, C2c} -> ok = gpte_codex:close(C2c), ct:fail(exec_approval_request_timeout_approved)
+    end,
+
+    %% 3) INTERRUPT: run a one-liner Erlang file write; approve then immediately interrupt.
+    %% Do not wait for anything; drain once, then ensure no further events for 10s.
+    InterruptCmd = <<"erl -noshell -eval 'file:write_file(\"interrupt_marker.txt\",<<\"irq\">>), halt().' -s init stop">>,
+    ok = gpte_codex:user_input(<<"ct-approval-3">>, <<"Execute this exact command now: ", InterruptCmd/binary>>, C4),
+    ok = gpte_codex:interrupt(C4),
+    {EvsNow, C5} = gpte_codex:recv_events(0, C4),
+    {EvsLater, C6} = gpte_codex:recv_events(10000, C5),
+    %% Assert no events arrived in the 10s window
+    case EvsLater of
+        [] -> ok;
+        _ -> ok = gpte_codex:close(C6), ct:fail({unexpected_events_after_interrupt, EvsNow, EvsLater})
+    end,
+    %% Final checks at the end of the flow (no mid-test file checks)
+    case file:read_file(RejectPath) of
+        {ok, _} -> ok = gpte_codex:close(C6), ct:fail({file_should_not_exist, RejectPath});
+        {error, _} -> ok
+    end,
+    case file:read_file(ApprovePath) of
+        {ok, _} -> ok;
+        {error, ReasonA} -> ok = gpte_codex:close(C6), ct:fail({approved_file_missing, ApprovePath, ReasonA})
+    end,
+    case file:read_file(InterruptPath) of
+        {ok, _} -> ok = gpte_codex:close(C6), ct:fail({interrupt_file_should_not_exist, InterruptPath});
+        {error, _} -> ok
+    end,
+    ok = gpte_codex:close(C6),
+    ok.
 
 %% Helpers ----------------------------------------------------------------
 
@@ -246,7 +347,7 @@ ensure_dir(Dir) ->
         false -> filelib:ensure_dir(filename:join(Dir, ".keep")), file:make_dir(Dir), ok
     end.
 
-maybe_skip_network(TC, Cfg) when TC =:= session_user_input_flow; TC =:= say_this_is_a_test; TC =:= file_io_create_hello_md ->
+maybe_skip_network(TC, Cfg) when TC =:= session_user_input_flow; TC =:= say_this_is_a_test; TC =:= file_io_create_hello_md; TC =:= approval_and_interrupt_flow ->
     case has_api_creds() of
         true -> Cfg;
         false -> {skip, "Missing API key (set OPENAI_API_KEY or ANTHROPIC_API_KEY)"}

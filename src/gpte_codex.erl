@@ -12,7 +12,7 @@
       , configure_session/2
       , user_input/3
       , user_input/4
-      , exec_approval/3
+      , exec_approval/4
       , interrupt/1
       , recv_events/2
       , handle_port_data/2
@@ -22,7 +22,6 @@
 -export_type([
         opt/0
       , codex/0
-      , provider_info/0
     ]).
 
 %% Types -----------------------------------------------------------------
@@ -34,20 +33,13 @@
 %% - args: Additional args; the implementation will ensure proto mode
 %% - cwd: Working directory for the port process
 %% - env: Extra environment variables for the port process
-%% - provider: Binary name (e.g., <<"OpenAI">>) or provider object (e.g., #{name => <<"OpenAI">>, wire_api => <<"responses">>})
 %% - on_invalid: How to treat invalid JSON lines from Codex
-%% Provider information passed to Codex CLI
--type provider_info() :: #{
-        name := unicode:unicode_binary()
-      , wire_api => unicode:unicode_binary()
-    }.
 
 -type opt() :: #{
         program := unicode:unicode_binary()
       , args => [unicode:unicode_binary()]
       , cwd => unicode:unicode_binary()
       , env => gpte_codex_proto:env()
-      , provider => unicode:unicode_binary() | provider_info()
       , on_invalid => drop | unknown
     }.
 
@@ -128,7 +120,6 @@ buffer(C) ->
 send_op(Op, C) ->
     Port = port(C),
     Frame = encode_outgoing(Op, C),
-    io:format("~ts~n", [Frame]),
     case erlang:port_command(Port, Frame) of
         true -> ok;
         false -> erlang:error({port_command_failed, Frame})
@@ -149,9 +140,9 @@ user_input(SubId, Input, Opts0, C) ->
     Op = gpte_codex_proto:mk_user_input(SubId, Input, Opts0),
     send_op(Op, C).
 
--spec exec_approval(gpte_codex_proto:sub_id(), gpte_codex_proto:approval_decision(), codex()) -> ok.
-exec_approval(SubId, Decision, C) ->
-    Op = gpte_codex_proto:mk_exec_approval(SubId, Decision),
+-spec exec_approval(gpte_codex_proto:sub_id(), gpte_codex_proto:call_id(), gpte_codex_proto:approval_decision(), codex()) -> ok.
+exec_approval(SubId, CallId, Decision, C) ->
+    Op = gpte_codex_proto:mk_exec_approval(SubId, CallId, Decision),
     send_op(Op, C).
 
 -spec interrupt(codex()) -> ok.
@@ -240,26 +231,15 @@ recv_drain(Port, OnInvalid, C0, EvAccRev) ->
 
 encode_outgoing(Op, C) when is_map(Op) ->
     %% Codex CLI expects submissions as: { id, op: { type, ... } }
-    %% Determine provider from Op/session, opts (none | {value, ProviderMap})
-    Provider0 = choose_provider_maybe(Op, C),
     OpInner = case maps:find(op, Op) of
         {ok, Type} ->
             Data0 = maps:remove(op, Op),
             Data1 = transform_op(Type, Data0),
-            %% Provider info already normalized in choose_provider_maybe/2
-            PInfo = Provider0,
             case Type of
-                configure_session -> ok = validate_configure_session(Data1, PInfo);
+                configure_session -> ok = validate_configure_session(Data1);
                 _ -> ok
             end,
-            case {Type, PInfo} of
-                {configure_session, none} -> erlang:error({badarg, provider_missing, provider_required_description()});
-                _ -> ok
-            end,
-            case PInfo of
-                none -> Data1#{type => Type};
-                {value, PMap} -> Data1#{type => Type, provider => PMap}
-            end;
+            Data1#{type => Type};
         error -> Op
     end,
     IdBin = integer_to_binary(erlang:unique_integer([monotonic, positive])),
@@ -267,13 +247,9 @@ encode_outgoing(Op, C) when is_map(Op) ->
     gpte_codex_proto:frame(gpte_codex_proto:encode_op(Top)).
 
 transform_op(configure_session, Data0 = #{session := _Sess0}) ->
-    %% Flatten session fields into the op payload and remove provider from session.
+    %% Flatten session fields into the op payload without special-casing provider
     Sess0 = maps:get(session, Data0),
-    Sess1 = case Sess0 of
-        M when is_map(M) -> maps:remove(provider, M);
-        Other -> Other
-    end,
-    maps:merge(maps:remove(session, Data0), Sess1);
+    maps:merge(maps:remove(session, Data0), Sess0);
 transform_op(user_input, Data0) ->
     case maps:find(input, Data0) of
         {ok, Input} ->
@@ -284,37 +260,6 @@ transform_op(user_input, Data0) ->
 transform_op(_, Data) ->
     Data.
 
-choose_provider_maybe(Op, C) ->
-    %% Priority (explicit only; no heuristics):
-    %% 1) Op.top-level 'provider'
-    %% 2) Op.session.provider
-    %% 3) C.opts 'provider'
-    case klsn_map:lookup([provider], Op) of
-        {value, PMap} when is_map(PMap) -> ensure_provider_map(PMap);
-        {value, P} -> {value, #{name => klsn_binstr:from_any(P)}};
-        none ->
-            case klsn_map:lookup([session, provider], Op) of
-                {value, PM} when is_map(PM) -> ensure_provider_map(PM);
-                {value, P2} -> {value, #{name => klsn_binstr:from_any(P2)}};
-                none ->
-                    Opts = opts(C),
-                    case klsn_map:lookup([provider], Opts) of
-                        {value, PM3} when is_map(PM3) -> ensure_provider_map(PM3);
-                        {value, P3} -> {value, #{name => klsn_binstr:from_any(P3)}};
-                        none -> none
-                    end
-            end
-    end.
-
-ensure_provider_map(Map) when is_map(Map) ->
-    NameMaybe = case klsn_map:lookup([name], Map) of
-        none -> klsn_map:lookup([<<"name">>], Map);
-        MV -> MV
-    end,
-    case NameMaybe of
-        none -> erlang:error({badarg, invalid_provider_map_missing_name});
-        {value, _} -> {value, Map}
-    end.
 
 
 
@@ -322,7 +267,7 @@ ensure_provider_map(Map) when is_map(Map) ->
 
 
 %% Validate ConfigureSession payload has all required fields with valid values.
-validate_configure_session(Map, ProviderInfo) when is_map(Map) ->
+validate_configure_session(Map) when is_map(Map) ->
     Miss0 = [],
     Miss1 = case maps:is_key(model, Map) of true -> Miss0; false -> [missing_model() | Miss0] end,
     Miss2 = case maps:is_key(workspace_dir, Map) of true -> Miss1; false -> [missing_workspace_dir() | Miss1] end,
@@ -347,7 +292,7 @@ validate_configure_session(Map, ProviderInfo) when is_map(Map) ->
         {ok, _Other} -> [invalid_sandbox_policy() | Miss5];
         error -> [missing_sandbox_policy() | Miss5]
     end,
-    Miss = case ProviderInfo of none -> [missing_provider() | Miss6]; {value, _} -> Miss6 end,
+    Miss = Miss6,
     case Miss of
         [] -> ok;
         _ -> erlang:error({bad_configure_session, lists:reverse(Miss)})
@@ -393,8 +338,4 @@ missing_sandbox_mode() ->
 invalid_sandbox_mode() ->
     #{field => sandbox_policy_mode, description => <<"Invalid: must be one of: read-only | workspace-write | danger-full-access.">>, allowed => [<<"read-only">>, <<"workspace-write">>, <<"danger-full-access">>]}.
 
-missing_provider() ->
-    #{field => provider, description => <<"Required: model provider name (e.g., openai, anthropic). Set via open/1 opts or include 'provider' in session options.">>, allowed => [<<"openai">>, <<"anthropic">>, <<"openai-chat-completions">>, <<"azure">>, <<"ollama">>, <<"mistral">>]}.
-
-provider_required_description() ->
-    #{description => <<"Provider is required. Set open/1 option 'provider' or include 'provider' in session options.">>, allowed => [<<"openai">>, <<"anthropic">>, <<"openai-chat-completions">>, <<"azure">>, <<"ollama">>, <<"mistral">>]}.
+%% No provider requirement

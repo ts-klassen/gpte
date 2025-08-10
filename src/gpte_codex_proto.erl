@@ -4,7 +4,7 @@
         mk_configure_session/1
       , mk_user_input/2
       , mk_user_input/3
-      , mk_exec_approval/2
+      , mk_exec_approval/3
       , mk_interrupt/0
       , encode_op/1
       , encode_frame/1
@@ -23,6 +23,7 @@
       , sandbox_policy/0
       , user_input_opts/0
       , approval_decision/0
+      , call_id/0
       , env/0
       , event_type/0
       , session_configured_event/0
@@ -52,6 +53,7 @@
 -type response_id() :: unicode:unicode_binary().
 -type user_input() :: unicode:unicode_binary().
 -type env() :: #{unicode:unicode_binary() => unicode:unicode_binary()}.
+-type call_id() :: unicode:unicode_binary().
 %% Provider information passed through to Codex CLI
 -type provider_info() :: #{
         name := unicode:unicode_binary()
@@ -91,7 +93,7 @@
 -type user_input_opts() :: #{
         last_response_id => response_id()
     }.
--type approval_decision() :: allow | deny.
+-type approval_decision() :: approved | approved_for_session | denied | abort.
 
 -type event_type() ::
         session_configured
@@ -130,6 +132,7 @@
             command := unicode:unicode_binary()
           , cwd := unicode:unicode_binary()
           , env => env()
+          , call_id => call_id()
         }
     }.
 
@@ -190,7 +193,7 @@
       , input := user_input()
       , last_response_id => response_id()
     }.
--type exec_approval_op() :: #{op := exec_approval, sub_id := sub_id(), decision := approval_decision()}.
+-type exec_approval_op() :: #{op := exec_approval, sub_id := sub_id(), id := call_id(), decision := approval_decision()}.
 -type interrupt_op() :: #{op := interrupt}.
 -type op() :: configure_session_op() | user_input_op() | exec_approval_op() | interrupt_op().
 -type line() :: binary().
@@ -218,9 +221,9 @@ mk_user_input(SubId, Input, Opts) ->
         _ -> Base
     end.
 
--spec mk_exec_approval(sub_id(), approval_decision()) -> op().
-mk_exec_approval(SubId, Decision) ->
-    #{op => exec_approval, sub_id => SubId, decision => Decision}.
+-spec mk_exec_approval(sub_id(), call_id(), approval_decision()) -> op().
+mk_exec_approval(SubId, CallId, Decision) when is_binary(CallId) ->
+    #{op => exec_approval, sub_id => SubId, id => CallId, decision => Decision}.
 
 -spec mk_interrupt() -> op().
 mk_interrupt() ->
@@ -276,12 +279,24 @@ decode_chunk(Buf, Data, Opts) ->
 decode_line(Line) ->
     try jsone:decode(Line) of
         Map when is_map(Map) ->
-            %% Some Codex CLIs wrap events as {id, msg:{...}}; unwrap when present.
+            %% Some Codex CLIs wrap events; unwrap when present.
             Map1 = case maps:get(<<"msg">>, Map, undefined) of
                 Msg when is_map(Msg) -> Msg;
                 _ -> Map
             end,
-            decode_event_map(Map1);
+            Map2 = case maps:get(<<"event">>, Map1, undefined) of
+                Ev when is_map(Ev) -> Ev;
+                _ -> Map1
+            end,
+            Map3 = case maps:get(<<"op">>, Map2, undefined) of
+                Op when is_map(Op) ->
+                    case maps:is_key(<<"type">>, Op) of
+                        true -> Op;
+                        false -> Map2
+                    end;
+                _ -> Map2
+            end,
+            decode_event_map(Map3);
         Other ->
             {ok, unknown_from(undefined, Other)}
     catch
@@ -295,18 +310,9 @@ split_lines(Bin) when is_binary(Bin) ->
     case Sz of
         0 -> {[], <<>>};
         _ ->
-            case binary:match(Bin, <<"\n">>) of
-                {_, _} -> split_by_delim(Bin, <<"\n">>);
-                nomatch -> {[], Bin}
-            end
+            [Rest|List] = lists:reverse(binary:split(Bin, <<"\n">>, [global])),
+            {lists:reverse(List), Rest}
     end.
-
-split_by_delim(Bin, Delim) ->
-    Parts = binary:split(Bin, Delim, [global]),
-    Rest0 = lists:last(Parts),
-    Lines0 = lists:sublist(Parts, length(Parts) - 1),
-    Rest1 = case Rest0 of <<>> -> <<>>; _ -> Rest0 end,
-    {Lines0, Rest1}.
 
 strip_cr(Line) when is_binary(Line), byte_size(Line) > 0 ->
     case binary:last(Line) of
@@ -384,6 +390,13 @@ decode_event_map(Map = #{<<"type">> := <<"exec_approval_request">>, <<"sub_id">>
     case {Cmd, Cwd} of
         {C1, C2} when is_binary(C1), is_binary(C2) ->
             Event0 = #{type => exec_approval_request, sub_id => SubId, payload => #{command => Cmd, cwd => Cwd}},
+            %% Optionally pass through call_id if present and binary
+            Event1 = case maps:get(<<"call_id">>, Payload, undefined) of
+                T when is_binary(T) ->
+                    P0 = maps:get(payload, Event0),
+                    Event0#{payload := P0#{call_id => T}};
+                _ -> Event0
+            end,
             case maps:is_key(<<"env">>, Payload) of
                 true ->
                     Env = maps:get(<<"env">>, Payload),
@@ -391,17 +404,44 @@ decode_event_map(Map = #{<<"type">> := <<"exec_approval_request">>, <<"sub_id">>
                         E when is_map(E) ->
                             case env_kv_binaries(E) of
                                 true ->
-                                    Payload0 = maps:get(payload, Event0),
-                                    {ok, Event0#{payload := Payload0#{env => E}}};
+                                    Payload0 = maps:get(payload, Event1),
+                                    {ok, Event1#{payload := Payload0#{env => E}}};
                                 false -> {ok, unknown_from(SubId, Map)}
                             end;
-                        null -> {ok, Event0};
+                        null -> {ok, Event1};
                         _ -> {ok, unknown_from(SubId, Map)}
                     end;
-                false -> {ok, Event0}
+                false -> {ok, Event1}
             end;
         _ -> {ok, unknown_from(SubId, Map)}
     end;
+
+%% Accept alternate shape where fields appear at top level (no payload wrapper)
+%% Be permissive: construct payload from any recognized fields and return exec_approval_request.
+decode_event_map(Map = #{<<"type">> := <<"exec_approval_request">>}) ->
+    Sub0 = maps:get(<<"sub_id">>, Map, undefined),
+    P0 = case maps:get(<<"payload">>, Map, undefined) of
+        P when is_map(P) -> P;
+        _ -> Map
+    end,
+    P1 = case maps:get(<<"command">>, P0, undefined) of
+        C when is_binary(C) -> #{command => C};
+        _ -> #{}
+    end,
+    P2 = case maps:get(<<"cwd">>, P0, undefined) of
+        W when is_binary(W) -> P1#{cwd => W};
+        _ -> P1
+    end,
+    P3 = case maps:get(<<"call_id">>, P0, undefined) of
+        Id when is_binary(Id) -> P2#{call_id => Id};
+        _ -> P2
+    end,
+    P4 = case maps:get(<<"env">>, P0, undefined) of
+        E when is_map(E) -> case env_kv_binaries(E) of true -> P3#{env => E}; false -> P3 end;
+        null -> P3;
+        _ -> P3
+    end,
+    {ok, add_sub(#{type => exec_approval_request, payload => P4}, Sub0)};
 
 decode_event_map(Map = #{<<"type">> := <<"exec_start">>, <<"sub_id">> := SubId}) when is_binary(SubId) ->
     Payload0 = maps:get(<<"payload">>, Map, #{}),

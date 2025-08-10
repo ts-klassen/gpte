@@ -19,14 +19,14 @@ user_input_resume_build_test() ->
     ?assertMatch(#{op := user_input, sub_id := <<"sub-2">>, input := <<"Continue">>, last_response_id := <<"resp-123">>}, Op).
 
 exec_approval_build_test() ->
-    Allow = gpte_codex_proto:mk_exec_approval(<<"sub-3">>, allow),
-    Deny = gpte_codex_proto:mk_exec_approval(<<"sub-3">>, deny),
-    ?assertMatch(#{op := exec_approval, sub_id := <<"sub-3">>, decision := allow}, Allow),
-    ?assertMatch(#{op := exec_approval, sub_id := <<"sub-3">>, decision := deny}, Deny).
+    Approved = gpte_codex_proto:mk_exec_approval(<<"sub-3">>, <<"call-1">>, approved),
+    Denied = gpte_codex_proto:mk_exec_approval(<<"sub-3">>, <<"call-2">>, denied),
+    ?assertMatch(#{op := exec_approval, sub_id := <<"sub-3">>, id := <<"call-1">>, decision := approved}, Approved),
+    ?assertMatch(#{op := exec_approval, sub_id := <<"sub-3">>, id := <<"call-2">>, decision := denied}, Denied).
 
 interrupt_build_test() ->
     Op = gpte_codex_proto:mk_interrupt(),
-    ?assertEqual(#{op => interrupt}, maps:from_list(maps:to_list(Op))).
+    ?assertEqual(#{op => interrupt}, Op).
 
 %% Framing/encoding ------------------------------------------------------
 
@@ -70,6 +70,18 @@ decode_line_exec_approval_request_with_env_test() ->
     {ok, Ev} = gpte_codex_proto:decode_line(Line),
     ?assertEqual(exec_approval_request, maps:get(type, Ev)),
     #{payload := P} = Ev,
+    ?assertEqual(<<"1">>, maps:get(<<"A">>, maps:get(env, P), undefined)).
+
+decode_line_exec_approval_request_top_level_test() ->
+    %% Accept top-level fields without payload wrapper and include call_id when present
+    Line = <<"{\"type\":\"exec_approval_request\",\"sub_id\":\"s3t\",\"command\":\"echo\",\"cwd\":\"/tmp\",\"call_id\":\"call-xyz\",\"env\":{\"A\":\"1\"}}">>,
+    {ok, Ev} = gpte_codex_proto:decode_line(Line),
+    ?assertEqual(exec_approval_request, maps:get(type, Ev)),
+    ?assertEqual(<<"s3t">>, maps:get(sub_id, Ev)),
+    #{payload := P} = Ev,
+    ?assertEqual(<<"echo">>, maps:get(command, P)),
+    ?assertEqual(<<"/tmp">>, maps:get(cwd, P)),
+    ?assertEqual(<<"call-xyz">>, maps:get(call_id, P)),
     ?assertEqual(<<"1">>, maps:get(<<"A">>, maps:get(env, P), undefined)).
 
 decode_line_exec_start_test() ->
