@@ -8,6 +8,7 @@
       , port/1
       , opts/1
       , buffer/1
+      , is_alive/1
       , send_op/2
       , configure_session/2
       , user_input/3
@@ -94,6 +95,26 @@ close(C) ->
     Port = port(C),
     _ = erlang:port_close(Port),
     ok.
+
+-spec is_alive(codex()) -> boolean().
+is_alive(C) ->
+    case C of
+        #{port := P} when is_port(P) ->
+            case erlang:port_info(P) of
+                undefined -> false;
+                Info when is_list(Info) ->
+                    PidAlive = case lists:keyfind(connected, 1, Info) of
+                        {connected, ConnPid} when is_pid(ConnPid) -> erlang:is_process_alive(ConnPid);
+                        _ -> true
+                    end,
+                    OsAlive = case lists:keyfind(os_pid, 1, Info) of
+                        {os_pid, OSPid} when is_integer(OSPid), OSPid > 0 -> os_pid_alive(OSPid);
+                        _ -> true
+                    end,
+                    PidAlive andalso OsAlive
+            end;
+        _ -> false
+    end.
 
 -spec port(codex()) -> port().
 port(C) ->
@@ -263,6 +284,17 @@ transform_op(_, Data) ->
 
 
 
+
+
+%% Platform-specific check whether an OS process exists.
+os_pid_alive(OSPid) when is_integer(OSPid), OSPid > 0 ->
+    case os:type() of
+        {unix, linux} ->
+            filelib:is_dir("/proc/" ++ integer_to_list(OSPid));
+        _Other ->
+            %% Fallback: unknown platform; do not claim it's dead.
+            true
+    end.
 
 
 
