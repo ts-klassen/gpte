@@ -2,6 +2,7 @@
 
 -export([
         request/2
+      , bypass_mock_request/2
       , chat/1
       , embeddings/1
       , image_generations/1
@@ -65,8 +66,29 @@ moderations(RequestBody) ->
     request(Url, RequestBody).
 
 -spec request(uri_string:uri_string(), payload()) -> payload().
+-ifdef(GPTE_API_REQUEST_MOCK).
+request(Url, BodyMap) ->
+    case ?GPTE_API_REQUEST_MOCK of
+        true ->
+            gpte_api_mock:request(Url, BodyMap);
+        false ->
+            bypass_mock_request(Url, BodyMap);
+        Module when is_atom(Module) ->
+            Module:request(Url, BodyMap);
+        {Module, Function} ->
+            Module:Function(Url, BodyMap);
+        {Module, Function, 2} ->
+            Module:Function(Url, BodyMap)
+    end.
+-else.
 request(Url, BodyMap) ->
     request_(Url, BodyMap, 3).
+-endif.
+
+-spec bypass_mock_request(uri_string:uri_string(), payload()) -> payload().
+bypass_mock_request(Url, BodyMap) ->
+    request_(Url, BodyMap, 3).
+
 request_(_, _, 0) ->
     error(too_many_retry);
 request_(Url, BodyMap, ReTry) ->
