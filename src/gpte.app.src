@@ -1,6 +1,6 @@
 {application, gpte,
  [{description, "An OTP library"},
-  {vsn, "1.13.0"},
+  {vsn, "1.14.0"},
   {registered, []},
   {applications,
    [kernel,
