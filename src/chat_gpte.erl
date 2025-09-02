@@ -539,7 +539,7 @@ lookup_last_raw_usage(#{payloads:=[#{<<"usage">>:=Usage}|_]}) ->
 lookup_last_raw_usage(_) ->
     none.
 
--spec list_raw_usage(chat()) -> klsn:maybe(raw_usage()).
+-spec list_raw_usage(chat()) -> [raw_usage()].
 list_raw_usage(#{payloads:=Payloads}) ->
     lists:filtermap(fun
         (#{<<"usage">>:=Usage}) ->
