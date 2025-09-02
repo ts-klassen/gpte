@@ -2,7 +2,7 @@
 
 -deprecated([{function, 2}]).
 
--define(DEFAULT_MODEL, 'gpt-4o-mini').
+-define(DEFAULT_MODEL, 'gpt-5-mini').
 
 -export([
         new/0
@@ -10,6 +10,8 @@
       , model/2
       , temperature/1
       , temperature/2
+      , service_tier/1
+      , service_tier/2
       , response_format/1
       , response_format/2
       , delete_response_format/1
@@ -32,6 +34,9 @@
       , on_moderation_flagged/2
       , lookup_last_usage/1
       , get_last_usage/1
+      , lookup_last_raw_usage/1
+      , get_last_raw_usage/1
+      , list_raw_usage/1
     ]).
 
 -export_type([
@@ -41,13 +46,16 @@
       , on_moderation/0
       , moderation_result/0
       , usage/0
+      , raw_usage/0
       , image_url/0
+      , service_tier/0
     ]).
 
 -opaque chat() :: #{
         request := #{
             model := unicode:unicode_binary()
           , temperature => number()
+          , service_tier => service_tier()
           , messages := [message_()]
           , functions => [function_()]
           , response_format => map()
@@ -115,6 +123,10 @@
       , prompt_tokens := non_neg_integer()
       , total_tokens := non_neg_integer()
     }.
+
+-type raw_usage() :: #{}.
+
+-type service_tier() :: auto | default | flex | priority.
 
 -spec new() -> chat().
 new() ->
@@ -343,6 +355,14 @@ temperature(Chat) ->
 temperature(Temperature, Chat) ->
     klsn_map:upsert([request, temperature], Temperature, Chat).
 
+-spec service_tier(chat()) -> klsn:maybe(service_tier()).
+service_tier(Chat) ->
+    klsn_map:lookup([request, service_tier], Chat).
+
+-spec service_tier(service_tier(), chat()) -> chat().
+service_tier(ServiceTier, Chat) ->
+    klsn_map:upsert([request, service_tier], ServiceTier, Chat).
+
 -spec response_format(chat()) -> klsn:maybe(map()).
 response_format(Chat) ->
     klsn_map:lookup([request, response_format], Chat).
@@ -513,9 +533,28 @@ lookup_last_usage(#{payloads:=[#{<<"usage">>:=#{
 lookup_last_usage(_) ->
     none.
 
+-spec lookup_last_raw_usage(chat()) -> klsn:maybe(raw_usage()).
+lookup_last_raw_usage(#{payloads:=[#{<<"usage">>:=Usage}|_]}) ->
+    {value, Usage};
+lookup_last_raw_usage(_) ->
+    none.
+
+-spec list_raw_usage(chat()) -> klsn:maybe(raw_usage()).
+list_raw_usage(#{payloads:=Payloads}) ->
+    lists:filtermap(fun
+        (#{<<"usage">>:=Usage}) ->
+            {true, Usage};
+        (_) ->
+            false
+    end, Payloads).
+
 -spec get_last_usage(chat()) -> usage().
 get_last_usage(Chat) ->
     klsn_maybe:get_value(lookup_last_usage(Chat)).
+
+-spec get_last_raw_usage(chat()) -> raw_usage().
+get_last_raw_usage(Chat) ->
+    klsn_maybe:get_value(lookup_last_raw_usage(Chat)).
 
 -spec run_moderation(
         unicode:unicode_binary()
