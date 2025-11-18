@@ -37,6 +37,8 @@
       , lookup_last_raw_usage/1
       , get_last_raw_usage/1
       , list_raw_usage/1
+      , reasoning_effort/1
+      , reasoning_effort/2
     ]).
 
 -export_type([
@@ -49,6 +51,7 @@
       , raw_usage/0
       , image_url/0
       , service_tier/0
+      , reasoning_effort/0
     ]).
 
 -opaque chat() :: #{
@@ -60,6 +63,7 @@
           , functions => [function_()]
           , response_format => map()
           , tools => map()
+          , reasoning_effort => reasoning_effort()
         }
       , functions => maps:map(unicode:unicode_binary(), gpte_functions:choice())
       , tools => gpte_tools:tools()
@@ -127,6 +131,8 @@
 -type raw_usage() :: #{}.
 
 -type service_tier() :: auto | default | flex | priority.
+
+-type reasoning_effort() :: none | low | medium | high.
 
 -spec new() -> chat().
 new() ->
@@ -362,6 +368,14 @@ service_tier(Chat) ->
 -spec service_tier(service_tier(), chat()) -> chat().
 service_tier(ServiceTier, Chat) ->
     klsn_map:upsert([request, service_tier], ServiceTier, Chat).
+
+-spec reasoning_effort(chat()) -> klsn:maybe(reasoning_effort()).
+reasoning_effort(Chat) ->
+    klsn_map:lookup([request, reasoning_effort], Chat).
+
+-spec reasoning_effort(reasoning_effort(), chat()) -> chat().
+reasoning_effort(ServiceTier, Chat) ->
+    klsn_map:upsert([request, reasoning_effort], ServiceTier, Chat).
 
 -spec response_format(chat()) -> klsn:maybe(map()).
 response_format(Chat) ->
